@@ -50,7 +50,10 @@ export const metadata: Metadata = {
     googlebot: "notranslate",
   },
   icons: {
-    icon: [{ url: "/favicon.ico", sizes: "16x16", type: "image/x-icon" }],
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "32x32", type: "image/x-icon" },
+    ],
   },
 };
 
