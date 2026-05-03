@@ -1,19 +1,18 @@
 # Sell is Life — лендинг и админка аналитики
 
-Одностраничный лендинг на **Next.js 14 (App Router)** с тёмным UI, анимациями (**Framer Motion**) и админ-панелью (**/admin**) с графиками (**Recharts**). События и «заявки» (клики по Starter Pack) пишутся в **SQLite** через **Prisma**.
+Одностраничный лендинг на **Next.js 14 (App Router)** с тёмным UI, анимациями (**Framer Motion**) и админ-панелью (**/admin**) с графиками (**Recharts**). События и заявки (форма Starter Pack, клики и просмотры) пишутся в **файл на диске** приложения: **`data/site-events.jsonl`** — отдельная PostgreSQL/SQLite **не нужна**.
 
 ## Быстрый старт
 
 1. Скопируйте `.env.example` в `.env` и задайте переменные:
 
-   - `DATABASE_URL` — для SQLite по умолчанию: `"file:./dev.db"` (файл создаётся рядом с `prisma/schema.prisma`).
    - `ADMIN_PASSWORD` — пароль для входа в `/admin`.
+   - `NEXT_PUBLIC_SITE_URL` — URL сайта (локально порт как в `npm run dev`, по умолчанию 3030).
 
-2. Установите зависимости и примените миграции:
+2. Установите зависимости:
 
    ```bash
    npm install
-   npx prisma migrate dev
    ```
 
 3. Запуск в режиме разработки:
@@ -22,7 +21,7 @@
    npm run dev
    ```
 
-   Откройте [http://localhost:3000](http://localhost:3000). Админка: [http://localhost:3000/admin](http://localhost:3000/admin).
+   Откройте тот порт, который покажет Next (в скрипте указан **3030**). Админка: **`/admin`**.
 
 ## Сборка для продакшена
 
@@ -31,7 +30,7 @@ npm run build
 npm start
 ```
 
-Для продакшена укажите свой `DATABASE_URL` (например PostgreSQL) и сильный `ADMIN_PASSWORD`. В `schema.prisma` поменяйте `provider` на `postgresql` при необходимости.
+На сервере нужен **Node.js** и возможность **писать** в каталог приложения (создаётся папка **`data/`**).
 
 ## Шрифты
 
@@ -48,12 +47,13 @@ npm start
 - Клиент шлёт события на `POST /api/track` (см. `lib/track.ts`).
 - События: `page_view`, `click_starter_pack`, `click_product`, `click_pricing`, `scroll_depth` (25/50/75/100).
 - UTM с текущего URL добавляются в `data` событий.
-- Админка читает агрегаты через `GET /api/analytics` (только с валидной сессией после логина).
+- Заявки формы: `POST /api/starter-pack`.
+- Админка читает агрегаты через `GET /api/analytics` (после логина).
 
 ## Структура (основное)
 
 - `app/(site)/` — лендинг (навбар, футер, трекинг).
 - `app/admin/` — дашборд и логин.
-- `app/api/track`, `app/api/analytics`, `app/api/admin/login`, `app/api/admin/logout`.
-- `components/sections/*` — секции лендинга.
-- Доступ к `/admin`: проверка cookie в серверном `app/admin/page.tsx` и в `GET /api/analytics` (без Edge middleware, чтобы `.env` с паролем стабильно читался в Node).
+- `app/api/track`, `app/api/starter-pack`, `app/api/analytics`, `app/api/admin/login`, `app/api/admin/logout`.
+- `lib/site-event-store.ts` — запись/чтение событий из `data/site-events.jsonl`.
+- Доступ к `/admin`: проверка cookie в серверном `app/admin/page.tsx` и в `GET /api/analytics`.

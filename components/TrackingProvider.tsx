@@ -11,6 +11,12 @@ export function TrackingProvider() {
   useEffect(() => {
     void track("page_view");
 
+    /** Возврат по «Назад» из bfcache — React не перемонтируется, без этого второй заход не уходит на /api/track */
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) void track("page_view", { resume: "bfcache" });
+    };
+    window.addEventListener("pageshow", onPageShow);
+
     const onScroll = () => {
       const doc = document.documentElement;
       const total = doc.scrollHeight - window.innerHeight;
@@ -26,7 +32,10 @@ export function TrackingProvider() {
 
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   return null;

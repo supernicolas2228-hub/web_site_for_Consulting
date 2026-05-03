@@ -1,5 +1,8 @@
 /** @type {import("next").NextConfig} */
 const isBegetStatic = process.env.BEGET_STATIC === "1";
+/** Shared-хостинг (Beget Node): один воркер «Collecting page data», без отдельного webpack worker. */
+const restrictWorkers =
+  process.env.NEXT_RESTRICT_WORKERS === "1" || process.env.BEGET_SHARED_NODE === "1";
 
 function canonicalHostFromEnv() {
   const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://sanchaevkirill.ru";
@@ -18,6 +21,14 @@ function wwwRedirectScheme(host) {
 const nextConfig = isBegetStatic
   ? {
       output: "export",
+      /**
+       * В клиентский бандл — надёжнее, чем только process.env в скрипте сборки:
+       * иначе .env / порядок загрузки могут не дать NEXT_PUBLIC_STATIC_EXPORT=1,
+       * и track() снова шлёт POST /api/track → 404 на статическом Beget.
+       */
+      env: {
+        NEXT_PUBLIC_STATIC_EXPORT: "1",
+      },
       images: { unoptimized: true },
       /** На слабых ПК `tsc` в процессе build жрёт память; для статики Beget достаточно локальной проверки. */
       typescript: { ignoreBuildErrors: true },
@@ -31,6 +42,14 @@ const nextConfig = isBegetStatic
     }
   : {
       output: "standalone",
+      ...(restrictWorkers
+        ? {
+            experimental: {
+              cpus: 1,
+              webpackBuildWorker: false,
+            },
+          }
+        : {}),
       async redirects() {
         const host = canonicalHostFromEnv();
         const scheme = wwwRedirectScheme(host);

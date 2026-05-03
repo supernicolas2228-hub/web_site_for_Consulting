@@ -210,7 +210,6 @@ export function Hero() {
             <Button
               type="button"
               onClick={() => {
-                void track("click_starter_pack", { from: "hero_primary" });
                 starterPack.open("hero_primary");
               }}
               className="cta-glow w-full !min-h-[44px] !px-6 !py-2.5 !text-[11px] sm:w-auto sm:!min-h-[48px] sm:!text-xs"

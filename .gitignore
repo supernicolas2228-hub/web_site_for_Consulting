@@ -34,17 +34,27 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# prisma
+# локальные артефакты старых сборок с SQLite — можно удалять вручную
 /prisma/*.db
 /prisma/*.db-journal
-/prisma/sqlite/*.db
-/prisma/sqlite/*.db-journal
 /dev.db
 /dev.db-journal
+
+# лиды и события (не коммитим)
+/data/site-events.jsonl
 
 # build artifacts / local bundles (not portfolio source)
 /release/
 beget-upload*.zip
 beget-out.tar.gz
+beget-node-src-*.zip
+beget-node-standalone.tgz
+beget-node-standalone.zip
+.deploy_runtime/
+.deploy_runtime.tar.gz
+.next-full.tar.gz
+.next-server.tar.gz
+.remote-dev.db
+.remote-*-route.js
 *.tsbuildinfo
 build-log.txt

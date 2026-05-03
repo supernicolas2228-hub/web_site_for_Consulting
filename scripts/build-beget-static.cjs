@@ -82,7 +82,7 @@ process.env.NODE_OPTIONS = nodeOptsHeap;
 const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
 let exitCode = 0;
 try {
-  /* NODE_OPTIONS последним — иначе .env может задать крошечный heap и Prisma/Next падают по OOM. */
+  /* NODE_OPTIONS последним — иначе .env может задать крошечный heap и Next падает по OOM. */
   const r = spawnSync(npmCmd, ["run", "build"], {
     stdio: "inherit",
     env: { ...process.env, FORCE_COLOR: "0", NODE_OPTIONS: nodeOptsHeap },

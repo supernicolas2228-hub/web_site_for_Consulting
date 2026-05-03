@@ -122,7 +122,6 @@ export function Navbar() {
             <Button
               type="button"
               onClick={() => {
-                void track("click_starter_pack", { from: "navbar" });
                 starterPack.open("navbar");
               }}
               className="!min-h-[44px] !px-3 !py-2 !text-[11px] !tracking-[0.08em] sm:!px-5 sm:!text-xs !bg-gradient-to-r !from-emerald-600 !via-accent !to-emerald-500 !text-white !border-0 !shadow-lg !shadow-accent/40"
@@ -195,7 +194,6 @@ export function Navbar() {
                 className="mt-2 w-full !justify-center"
                 onClick={() => {
                   setOpen(false);
-                  void track("click_starter_pack", { from: "navbar_mobile" });
                   starterPack.open("navbar_mobile");
                 }}
               >

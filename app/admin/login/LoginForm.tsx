@@ -19,6 +19,8 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
+        credentials: "same-origin",
+        cache: "no-store",
       });
       if (!res.ok) {
         try {
@@ -45,12 +47,31 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
         <h1 className="font-display text-3xl uppercase tracking-[0.06em] text-zinc-900 dark:text-white">
           Админка
         </h1>
-        <form onSubmit={onSubmit} className="mt-8 space-y-4">
+        <form onSubmit={onSubmit} className="mt-8 space-y-4" autoComplete="on">
+          {/*
+            Chrome/Google Passwords часто не предлагают сохранить пароль, если в форме только поле password
+            и вход идёт через fetch. Добавляем «логин» для менеджера паролей (не уходит на сервер).
+          */}
+          <label className="sr-only" htmlFor="admin-login-username">
+            Логин
+          </label>
+          <input
+            id="admin-login-username"
+            name="username"
+            type="text"
+            autoComplete="username"
+            defaultValue="admin"
+            tabIndex={-1}
+            readOnly
+            className="sr-only"
+            aria-hidden
+          />
           <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-white">
             Пароль
             <div className="mt-2 flex gap-2">
               <input
                 type={showPassword ? "text" : "password"}
+                name="password"
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

@@ -32,6 +32,26 @@ const FX_BURST: readonly FxBurstItem[] = [
   { kind: "money", text: "💶" },
 ] as const;
 
+/** Дополнительные элементы только для телефона — чтобы вылет был насыщеннее. */
+const FX_BURST_MOBILE_EXTRA: readonly FxBurstItem[] = [
+  { kind: "money", text: "💵" },
+  { kind: "word", text: "УСПЕХ", emphasize: true },
+  { kind: "money", text: "💶" },
+  { kind: "word", text: "ДЕНЬГИ", emphasize: true },
+  { kind: "money", text: "$" },
+  { kind: "word", text: "РОСТ" },
+  { kind: "money", text: "💸" },
+  { kind: "word", text: "ДОХОД" },
+  { kind: "money", text: "€" },
+  { kind: "word", text: "ПОБЕДА" },
+  { kind: "money", text: "💰" },
+  { kind: "word", text: "РЕЗУЛЬТАТ" },
+  { kind: "money", text: "💵" },
+  { kind: "word", text: "УСПЕХ", emphasize: true },
+  { kind: "money", text: "💸" },
+  { kind: "word", text: "ДЕНЬГИ", emphasize: true },
+] as const;
+
 /** Жёсткий потолок: на медленном VPN / прокси GSAP не должен держать экран бесконечно. */
 const MAX_MS = 3200;
 
@@ -149,13 +169,20 @@ export function SitePreloader() {
         return;
       }
 
-      const vfxEls = fx.querySelectorAll<HTMLElement>(".pre-fx");
+      const nav = navigator as Navigator & { deviceMemory?: number };
+      const isNarrow = window.innerWidth < 640;
+      const isLowPowerPhone =
+        isNarrow &&
+        ((typeof nav.deviceMemory === "number" && nav.deviceMemory <= 4) ||
+          (navigator.hardwareConcurrency ?? 8) <= 4);
+      const vfxSelector = isNarrow ? ".pre-fx" : ".pre-fx:not(.mobile-extra)";
+      const vfxEls = fx.querySelectorAll<HTMLElement>(vfxSelector);
       if (vfxEls.length === 0) {
         endAndHide();
         return;
       }
 
-      const vfxArr = Array.from(vfxEls);
+      const vfxArr = Array.from(vfxEls).slice(0, isLowPowerPhone ? 16 : undefined);
       gsapTargetsRef.current = [root, box, nameEl, ...vfxArr];
 
       const lock = () => {
@@ -164,6 +191,7 @@ export function SitePreloader() {
       };
       lock();
 
+      const maxMs = isNarrow ? 2600 : MAX_MS;
       safetyRef.current = window.setTimeout(() => {
         try {
           gsap.killTweensOf(gsapTargetsRef.current);
@@ -172,7 +200,7 @@ export function SitePreloader() {
         }
         gsap.set(root, { autoAlpha: 0, pointerEvents: "none" });
         endAndHide();
-      }, MAX_MS);
+      }, maxMs);
 
       if (prefersReduced()) {
         gsap
@@ -182,25 +210,78 @@ export function SitePreloader() {
         return;
       }
 
-      const w = window.innerWidth;
-      const isNarrow = w < 640;
-      const burst = (i: number, total: number) => {
-        const base = (i / Math.max(total, 1)) * Math.PI * 2 - Math.PI / 2;
-        const jitter = (Math.random() - 0.5) * 0.85;
-        const angle = base + jitter;
-        const r = (isNarrow ? 0.42 : 1) * (140 + Math.random() * 240);
+      const nameRect = nameEl.getBoundingClientRect();
+      const fxRect = fx.getBoundingClientRect();
+      const left = nameRect.left - fxRect.left;
+      const right = nameRect.right - fxRect.left;
+      const top = nameRect.top - fxRect.top;
+      const bottom = nameRect.bottom - fxRect.top;
+      const cx = (left + right) / 2;
+      const cy = (top + bottom) / 2;
+
+      const sideFlight = () => {
+        if (isNarrow) {
+          // На телефоне — "конфетти" по всему кругу вокруг имени.
+          const halfW = Math.max(42, (right - left) / 2);
+          const halfH = Math.max(18, (bottom - top) / 2);
+          const angle = Math.random() * Math.PI * 2;
+          const ringPad = 8 + Math.random() * 16;
+          const sx = cx + Math.cos(angle) * (halfW + ringPad);
+          const sy = cy + Math.sin(angle) * (halfH + ringPad);
+          const nx = Math.cos(angle);
+          const ny = Math.sin(angle);
+          const dist = 210 + Math.random() * 190;
+          const flyXAbs = sx + nx * dist + (Math.random() - 0.5) * 44;
+          const flyYAbs = sy + ny * dist + (Math.random() - 0.5) * 44;
+          return {
+            spawnX: sx - fxRect.width / 2,
+            spawnY: sy - fxRect.height / 2,
+            flyX: flyXAbs - fxRect.width / 2,
+            flyY: flyYAbs - fxRect.height / 2,
+            rot: (Math.random() - 0.5) * 220,
+            sc: 0.48 + Math.random() * 0.62,
+          };
+        }
+        const sidePick = Math.floor(Math.random() * 4); // 0:left 1:right 2:top 3:bottom
+        const edgeJitter = isNarrow ? 10 : 16;
+        let sx = cx;
+        let sy = cy;
+        if (sidePick === 0) {
+          sx = left - Math.random() * edgeJitter;
+          sy = top + Math.random() * Math.max(8, bottom - top);
+        } else if (sidePick === 1) {
+          sx = right + Math.random() * edgeJitter;
+          sy = top + Math.random() * Math.max(8, bottom - top);
+        } else if (sidePick === 2) {
+          sx = left + Math.random() * Math.max(8, right - left);
+          sy = top - Math.random() * edgeJitter;
+        } else {
+          sx = left + Math.random() * Math.max(8, right - left);
+          sy = bottom + Math.random() * edgeJitter;
+        }
+
+        const vx = sx - cx;
+        const vy = sy - cy;
+        const len = Math.hypot(vx, vy) || 1;
+        const nx = vx / len;
+        const ny = vy / len;
+        const dist = isNarrow ? 170 + Math.random() * 130 : 270 + Math.random() * 220;
+        const flyXAbs = sx + nx * dist + (Math.random() - 0.5) * (isNarrow ? 35 : 60);
+        const flyYAbs = sy + ny * dist + (Math.random() - 0.5) * (isNarrow ? 35 : 60);
         return {
-          x: Math.cos(angle) * r,
-          y: Math.sin(angle) * r - (isNarrow ? 18 : 26),
-          rot: (Math.random() - 0.5) * 140,
-          sc: 0.35 + Math.random() * 0.55,
+          spawnX: sx - fxRect.width / 2,
+          spawnY: sy - fxRect.height / 2,
+          flyX: flyXAbs - fxRect.width / 2,
+          flyY: flyYAbs - fxRect.height / 2,
+          rot: (Math.random() - 0.5) * 180,
+          sc: 0.45 + Math.random() * 0.55,
         };
       };
 
       gsap.set(vfxArr, {
         x: 0,
         y: 0,
-        scale: 0.45,
+        scale: 0.55,
         opacity: 0,
         rotation: 0,
         transformOrigin: "50% 50%",
@@ -224,33 +305,43 @@ export function SitePreloader() {
             duration: 0.82,
             ease: "power3.out",
           },
-          "-=0.12",
+          "-=0.22",
         )
-        .addLabel("burst", "+=0.12");
+        .addLabel("burst", "-=0.28");
 
       vfxArr.forEach((el, i) => {
-        const b = burst(i, vfxArr.length);
+        const b = sideFlight();
+        gsap.set(el, {
+          x: b.spawnX,
+          y: b.spawnY,
+          rotation: b.rot * 0.18,
+          scale: 0.58,
+        });
         tl.to(
           el,
           {
             opacity: 1,
-            scale: 0.92 + (i % 3) * 0.06,
-            duration: 0.22,
-            ease: "back.out(1.55)",
+            scale: 0.88 + (i % 3) * 0.05,
+            duration: isNarrow ? (isLowPowerPhone ? 0.13 : 0.16) : 0.12,
+            ease: "power2.out",
           },
-          `burst+=${i * 0.028}`,
+          `burst+=${isNarrow ? (isLowPowerPhone ? Math.random() * 0.035 : Math.random() * 0.05) : i * 0.008}`,
         ).to(
           el,
           {
-            x: b.x,
-            y: b.y,
+            x: b.flyX,
+            y: b.flyY,
             rotation: b.rot,
             scale: b.sc,
             opacity: 0,
-            duration: 1.05 + Math.random() * 0.15,
+            duration: isNarrow
+              ? isLowPowerPhone
+                ? 1.0 + Math.random() * 0.2
+                : 1.45 + Math.random() * 0.32
+              : 0.72 + Math.random() * 0.12,
             ease: "power3.out",
           },
-          `burst+=${0.14 + i * 0.035}`,
+          `burst+=${isNarrow ? (isLowPowerPhone ? 0.04 + Math.random() * 0.05 : 0.08 + Math.random() * 0.08) : 0.02 + i * 0.012}`,
         );
       });
 
@@ -358,6 +449,36 @@ export function SitePreloader() {
               <span
                 key={`${item.text}-${i}`}
                 className={`pre-fx font-display absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-extrabold uppercase leading-none tracking-[0.14em] sm:tracking-[0.18em] ${
+                  emphasize
+                    ? "text-[clamp(13px,3.6vmin,22px)] text-emerald-300 [text-shadow:0_0_24px_rgb(52_211_153/0.55)]"
+                    : "text-[clamp(11px,3vmin,17px)] text-zinc-400/95 [text-shadow:0_0_16px_rgba(255,255,255,0.12)]"
+                }`}
+              >
+                {item.text}
+              </span>
+            );
+          })}
+          {FX_BURST_MOBILE_EXTRA.map((item, i) => {
+            if (item.kind === "money") {
+              const isGlyph = item.text === "$" || item.text === "€";
+              return (
+                <span
+                  key={`m-${item.text}-${i}`}
+                  className={`pre-fx mobile-extra absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 leading-none select-none sm:hidden ${
+                    isGlyph
+                      ? "font-display text-[clamp(17px,4.8vmin,30px)] font-black text-amber-200 [text-shadow:0_0_22px_rgb(251_191_36/0.55),0_0_40px_rgb(234_179_8/0.25)]"
+                      : "text-[clamp(19px,5.2vmin,36px)] [filter:drop-shadow(0_0_14px_rgb(251_191_36/0.45))]"
+                  }`}
+                >
+                  {item.text}
+                </span>
+              );
+            }
+            const emphasize = Boolean(item.emphasize);
+            return (
+              <span
+                key={`m-${item.text}-${i}`}
+                className={`pre-fx mobile-extra font-display absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-extrabold uppercase leading-none tracking-[0.14em] sm:hidden ${
                   emphasize
                     ? "text-[clamp(13px,3.6vmin,22px)] text-emerald-300 [text-shadow:0_0_24px_rgb(52_211_153/0.55)]"
                     : "text-[clamp(11px,3vmin,17px)] text-zinc-400/95 [text-shadow:0_0_16px_rgba(255,255,255,0.12)]"

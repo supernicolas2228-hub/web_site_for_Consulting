@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from "@/lib/fetch-robust";
+import { isStaticExportSite } from "@/lib/static-site";
 
 export type TrackPayload = {
   event: string;
@@ -28,10 +29,9 @@ export function getTrafficSourcePayload(): Record<string, unknown> {
 }
 
 export async function track(event: string, data?: Record<string, unknown>): Promise<void> {
-  /* Статический Beget: без /api — не тратим запросы в пустоту (прокси, фильтры, LTE). */
-  if (process.env.NEXT_PUBLIC_STATIC_EXPORT === "1") {
-    return;
-  }
+  /* На статическом Beget /api/track нет — иначе 404 и шум в консоли и Network. На Node сборке флаг не задан — трекинг идёт. */
+  if (isStaticExportSite()) return;
+
   try {
     await fetchWithTimeout(
       "/api/track",

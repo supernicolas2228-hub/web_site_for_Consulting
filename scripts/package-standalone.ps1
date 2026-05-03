@@ -51,9 +51,7 @@ try {
     "Run (PM2: cwd = this folder, script = server.js, env NODE_ENV=production):",
     "  export NODE_ENV=production",
     "  export PORT=3030",
-    "  node server.js",
-    "",
-    "Prisma schema changes: run migrate from full repo if needed."
+    "  node server.js"
   )
   Set-Content -Path (Join-Path $staging "server-hint.txt") -Value ($hintLines -join "`n") -Encoding utf8
 

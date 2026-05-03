@@ -1,5 +1,23 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import {
+  appendSiteEvent,
+  checkSiteEventStorageHealthy,
+} from "@/lib/site-event-store";
+
+export const dynamic = "force-dynamic";
+
+/** GET: проверка API + файловое хранилище */
+export async function GET() {
+  const okStorage = await checkSiteEventStorageHealthy();
+  return NextResponse.json(
+    { ok: true, database: okStorage, storageFile: okStorage },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    },
+  );
+}
 
 const ALLOWED = new Set([
   "page_view",
@@ -7,10 +25,12 @@ const ALLOWED = new Set([
   "starter_pack_survey_submit",
   "click_product",
   "click_pricing",
+  "click_social",
   "scroll_depth",
 ]);
 
 export async function POST(req: Request) {
+  const createdAt = new Date();
   try {
     const body = (await req.json()) as {
       event?: string;
@@ -26,17 +46,14 @@ export async function POST(req: Request) {
     const dataStr =
       body.data !== undefined ? JSON.stringify(body.data) : JSON.stringify({ ts: body.timestamp });
 
-    await prisma.event.create({
-      data: {
-        event,
-        data: dataStr,
-      },
-    });
+    await appendSiteEvent(event, dataStr, createdAt);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[api/track]", err);
-    // Не роняем клиент: трекинг не должен превращаться в «внутреннюю ошибку» в браузере.
-    return NextResponse.json({ ok: true, skipped: true }, { status: 200 });
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : "storage_failed" },
+      { status: 500 },
+    );
   }
 }

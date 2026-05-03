@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
+import { SitePreloader } from "@/components/SitePreloader";
 import { SmoothScroll } from "@/components/SmoothScroll";
 import { site } from "@/config/content";
 import { getMetadataBase } from "@/config/site";
@@ -48,6 +49,9 @@ export const metadata: Metadata = {
     google: "notranslate",
     googlebot: "notranslate",
   },
+  icons: {
+    icon: [{ url: "/favicon.ico", sizes: "16x16", type: "image/x-icon" }],
+  },
 };
 
 export const viewport: Viewport = {
@@ -91,6 +95,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         translate="no"
         className="notranslate min-h-screen min-h-dvh font-body text-[15px] leading-[1.68] tracking-[-0.01em] antialiased [font-feature-settings:'kern'_1,'liga'_1] md:text-[16px] md:leading-[1.72]"
       >
+        <SitePreloader />
         <div
           id="site-root"
           className="site-root notranslate min-h-screen min-h-dvh"

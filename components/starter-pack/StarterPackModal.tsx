@@ -1,11 +1,12 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { STARTER_PACK_SUBMIT_URL } from "@/config/starter-pack";
 import { fetchWithTimeout } from "@/lib/fetch-robust";
+import { isStaticExportSite } from "@/lib/static-site";
 import { Button } from "@/components/ui/Button";
-import { track } from "@/lib/track";
+import { getTrafficSourcePayload } from "@/lib/track";
 import { spring } from "@/lib/motion";
 
 export type StarterPackFormPayload = {
@@ -37,9 +38,11 @@ type Props = {
 };
 
 export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
+  const reduceMotion = useReducedMotion();
   const [form, setForm] = useState<StarterPackFormPayload>(initialForm);
   const [step, setStep] = useState<"form" | "done">("form");
   const [busy, setBusy] = useState(false);
+  const [submitErr, setSubmitErr] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
   const idPrefix = useId();
 
@@ -48,6 +51,7 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
     setStep("form");
     setForm(initialForm);
     setBusy(false);
+    setSubmitErr("");
   }, [open]);
 
   useEffect(() => {
@@ -81,9 +85,19 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
+    setSubmitErr("");
+    const telegramNormalized = form.telegram.trim().replace(/^@+/, "");
+    if (!telegramNormalized) {
+      setSubmitErr("Укажите Telegram (username или ссылку).");
+      setBusy(false);
+      return;
+    }
+    if (typeof console !== "undefined" && console.info) {
+      console.info("[sanchaev] анкета: отправка запущена → POST /api/starter-pack");
+    }
     const payload = {
       ...form,
-      telegram: form.telegram.trim().replace(/^@+/, ""),
+      telegram: telegramNormalized,
       submittedAt: new Date().toISOString(),
       source,
     };
@@ -96,15 +110,132 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
       /* ignore */
     }
 
-    await track("starter_pack_survey_submit", {
-      source,
-      projectStage: form.projectStage,
-      formatInterest: form.formatInterest,
-      businessModel: form.businessModel,
-      mainTask: form.mainTask,
-      timeline: form.timeline,
-      hasTelegram: Boolean(form.telegram.trim()),
-    });
+    if (isStaticExportSite()) {
+      if (STARTER_PACK_SUBMIT_URL) {
+        try {
+          await fetchWithTimeout(
+            STARTER_PACK_SUBMIT_URL,
+            {
+              method: "POST",
+              headers: { "Content-Type": "text/plain;charset=utf-8" },
+              body: JSON.stringify(payload),
+              mode: "cors",
+              credentials: "omit",
+              cache: "no-store",
+            },
+            18_000,
+          );
+        } catch {
+          /* внешний вебхук может быть временно недоступен — UX не блокируем */
+        }
+        setStep("done");
+        setBusy(false);
+        return;
+      }
+      setSubmitErr(
+        "Автоотправка с этой версии сайта недоступна. Напишите в Telegram — ссылку смотрите внизу страницы.",
+      );
+      setBusy(false);
+      return;
+    }
+
+    let savedOnServer = false;
+    try {
+      const saveRes = await fetchWithTimeout(
+        "/api/starter-pack",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          credentials: "same-origin",
+          cache: "no-store",
+          keepalive: true,
+        },
+        35_000,
+      );
+      const saveJson = (await saveRes.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      /** Строго: иначе HTML/пустое тело со статусом 200 могло дать «галочку» без записи на диск */
+      savedOnServer = saveRes.ok && saveJson.ok === true;
+      if (typeof console !== "undefined" && console.info) {
+        console.info("[sanchaev] анкета: ответ сервера", {
+          http: saveRes.status,
+          ok: saveJson.ok === true,
+          error: saveJson.error,
+        });
+      }
+      if (!savedOnServer) {
+        const msg =
+          saveJson?.error === "telegram_required"
+            ? "Укажите Telegram."
+            : "Не удалось сохранить заявку. Проверьте интернет и попробуйте ещё раз.";
+        setSubmitErr(msg);
+        setBusy(false);
+        return;
+      }
+    } catch (err) {
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("[sanchaev] анкета: ошибка сети или таймаут на /api/starter-pack, пробую /api/track", err);
+      }
+    }
+
+    if (!savedOnServer) {
+      try {
+        const body = JSON.stringify({
+          event: "starter_pack_survey_submit",
+          data: {
+            ...getTrafficSourcePayload(),
+            ...payload,
+          },
+          timestamp: Date.now(),
+        });
+        const tr = await fetchWithTimeout(
+          "/api/track",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+            credentials: "same-origin",
+            cache: "no-store",
+            keepalive: true,
+          },
+          35_000,
+        );
+        const trJson = (await tr.json().catch(() => ({}))) as { ok?: boolean; skipped?: boolean };
+        if (!tr.ok || trJson.skipped || trJson.ok !== true) {
+          setSubmitErr("Сервер не принял заявку. Попробуйте через минуту или напишите в Telegram с сайта.");
+          setBusy(false);
+          return;
+        }
+      } catch {
+        try {
+          if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+            const blob = new Blob(
+              [
+                JSON.stringify({
+                  event: "starter_pack_survey_submit",
+                  data: {
+                    ...getTrafficSourcePayload(),
+                    ...payload,
+                  },
+                  timestamp: Date.now(),
+                }),
+              ],
+              { type: "application/json" },
+            );
+            navigator.sendBeacon("/api/track", blob);
+          }
+        } catch {
+          /* ignore */
+        }
+        setSubmitErr("Слабая сеть: заявка могла не дойти. Повторите отправку.");
+        setBusy(false);
+        return;
+      }
+    }
+
+    if (typeof console !== "undefined" && console.info) {
+      console.info("[sanchaev] анкета: успешно сохранена на сервере");
+    }
 
     if (STARTER_PACK_SUBMIT_URL) {
       try {
@@ -112,7 +243,7 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
           STARTER_PACK_SUBMIT_URL,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify(payload),
             mode: "cors",
             credentials: "omit",
@@ -121,7 +252,7 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
           18_000,
         );
       } catch {
-        /* остаёмся на локальном успехе: VPN/прокси/CORS/таймаут */
+        /* не блокируем UX, если внешний сервис временно недоступен */
       }
     }
 
@@ -131,6 +262,7 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
 
   const field =
     "mt-1 w-full rounded-2xl border border-stroke/25 bg-white/90 px-4 py-3 text-[15px] text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-600 focus:border-accent focus:ring-2 focus:ring-accent/25 dark:border-white/10 dark:bg-zinc-900/90 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:[color-scheme:dark]";
+  const textAreaField = `${field} min-h-[104px] resize-y`;
 
   const label = "block text-sm font-semibold text-zinc-800 dark:text-zinc-100";
 
@@ -144,13 +276,13 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          transition={{ duration: reduceMotion ? 0.01 : 0.14 }}
         >
           <motion.button
             type="button"
             tabIndex={-1}
             aria-hidden
-            className="fixed inset-0 z-[1] cursor-default border-0 bg-black/45 p-0 backdrop-blur-sm"
+            className="fixed inset-0 z-[1] cursor-default border-0 bg-black/50 p-0"
             onClick={onClose}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -163,13 +295,13 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby={`${idPrefix}-title`}
-                  className="pointer-events-auto relative z-10 my-6 w-full rounded-[2rem] border border-stroke/20 bg-page/95 shadow-[var(--shadow-lift),var(--shadow-plate)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/95 md:my-0"
-                  initial={{ opacity: 0, y: 16, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                  transition={spring.modal}
+                  className="pointer-events-auto relative z-10 my-6 w-full rounded-[2rem] border border-stroke/20 bg-page/95 shadow-[var(--shadow-lift),var(--shadow-plate)] dark:border-white/10 dark:bg-zinc-950/95 md:my-0"
+                  initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 8 }}
+                  transition={reduceMotion ? { duration: 0.01 } : spring.modal}
                 >
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-stroke/15 bg-page/90 px-5 py-4 backdrop-blur-md dark:border-white/10 dark:bg-zinc-950/90 sm:px-6">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-stroke/15 bg-page/90 px-5 py-4 dark:border-white/10 dark:bg-zinc-950/90 sm:px-6">
               <div>
                 <p className="font-display text-[10px] font-bold uppercase tracking-[0.28em] text-accent">Подарок</p>
                 <h2
@@ -180,7 +312,6 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
                 </h2>
                 <p className="mt-1 text-xs font-medium leading-relaxed text-zinc-800 dark:text-zinc-200">
                   Заполните короткую анкету, чтобы получить подарок и записаться на бесплатную сессию.
-                  Внешняя отправка пока отключена: ответы сохраняются локально и попадают в аналитику сайта.
                 </p>
               </div>
               <button
@@ -199,108 +330,80 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
                   <label className={label} htmlFor={`${idPrefix}-stage`}>
                     На каком этапе вы сейчас? <span className="text-accent">*</span>
                   </label>
-                  <select
+                  <textarea
                     id={`${idPrefix}-stage`}
                     required
-                    className={field}
+                    className={textAreaField}
+                    placeholder="Напишите, на каком этапе вы сейчас"
                     value={form.projectStage}
                     onChange={(e) => set("projectStage", e.target.value)}
-                  >
-                    <option value="">Выбери вариант</option>
-                    <option value="Расту в инфобизнесе, много идей и мало фокуса">Расту в инфобизнесе, много идей и мало фокуса</option>
-                    <option value="Нужен разбор одной конкретной задачи">Нужен разбор одной конкретной задачи</option>
-                    <option value="Интересует наставничество на постоянной основе">Интересует наставничество на постоянной основе</option>
-                    <option value="Хочу начать с бесплатного тарифа">Хочу начать с бесплатного тарифа</option>
-                    <option value="Рассматриваю продвинутый платный тариф">Рассматриваю продвинутый платный тариф</option>
-                  </select>
+                  />
                 </div>
 
                 <div>
                   <label className={label} htmlFor={`${idPrefix}-format`}>
                     Что ближе: разовый разбор или сопровождение? <span className="text-accent">*</span>
                   </label>
-                  <select
+                  <textarea
                     id={`${idPrefix}-format`}
                     required
-                    className={field}
+                    className={textAreaField}
+                    placeholder="Опишите, какой формат вам ближе"
                     value={form.formatInterest}
                     onChange={(e) => set("formatInterest", e.target.value)}
-                  >
-                    <option value="">Выбери вариант</option>
-                    <option value="Консультация">Консультация</option>
-                    <option value="Наставничество">Наставничество</option>
-                    <option value="Бесплатный тариф">Бесплатный тариф</option>
-                    <option value="Продвинутый тариф">Продвинутый тариф</option>
-                    <option value="Нужно помочь выбрать">Нужно помочь выбрать</option>
-                  </select>
+                  />
                 </div>
 
                 <div>
                   <label className={label} htmlFor={`${idPrefix}-model`}>
                     Что вы продаёте или хотите продавать? <span className="text-accent">*</span>
                   </label>
-                  <select
+                  <textarea
                     id={`${idPrefix}-model`}
                     required
-                    className={field}
+                    className={textAreaField}
+                    placeholder="Напишите, что вы продаёте или хотите продавать"
                     value={form.businessModel}
                     onChange={(e) => set("businessModel", e.target.value)}
-                  >
-                    <option value="">Выбери ближайшее</option>
-                    <option value="Консультации или экспертные услуги">Консультации или экспертные услуги</option>
-                    <option value="Наставничество или сопровождение">Наставничество или сопровождение</option>
-                    <option value="Авторский продукт или клуб">Авторский продукт или клуб</option>
-                    <option value="Несколько направлений сразу">Несколько направлений сразу</option>
-                    <option value="Пока формирую направление">Пока формирую направление</option>
-                  </select>
+                  />
                 </div>
 
                 <div>
                   <label className={label} htmlFor={`${idPrefix}-task`}>
                     Какая задача сейчас главная? <span className="text-accent">*</span>
                   </label>
-                  <select
+                  <textarea
                     id={`${idPrefix}-task`}
                     required
-                    className={field}
+                    className={textAreaField}
+                    placeholder="Опишите вашу главную задачу сейчас"
                     value={form.mainTask}
                     onChange={(e) => set("mainTask", e.target.value)}
-                  >
-                    <option value="">Выбери</option>
-                    <option value="Разобраться в приоритетах и следующем шаге">Разобраться в приоритетах и следующем шаге</option>
-                    <option value="Снизить перегруз и шум в инфобизнесе">Снизить перегруз и шум в инфобизнесе</option>
-                    <option value="Разобрать подачу и сообщения (без «сделайте за меня»)">Разобрать подачу и сообщения (без «сделайте за меня»)</option>
-                    <option value="Понять, консультация мне или наставничество">Понять, консультация мне или наставничество</option>
-                    <option value="Понять, с чего начать">Понять, с чего начать</option>
-                  </select>
+                  />
                 </div>
 
                 <div>
                   <label className={label} htmlFor={`${idPrefix}-timeline`}>
                     Когда хотите стартовать? <span className="text-accent">*</span>
                   </label>
-                  <select
+                  <textarea
                     id={`${idPrefix}-timeline`}
                     required
-                    className={field}
+                    className={textAreaField}
+                    placeholder="Когда хотите стартовать?"
                     value={form.timeline}
                     onChange={(e) => set("timeline", e.target.value)}
-                  >
-                    <option value="">Выбери</option>
-                    <option value="В ближайшие 7 дней">В ближайшие 7 дней</option>
-                    <option value="В течение месяца">В течение месяца</option>
-                    <option value="Чуть позже — оставить заявку">Чуть позже — оставить заявку</option>
-                    <option value="Пока изучаю варианты">Пока изучаю варианты</option>
-                  </select>
+                  />
                 </div>
 
                 <div>
                   <label className={label} htmlFor={`${idPrefix}-tg`}>
-                    Telegram <span className="font-medium text-zinc-700 dark:text-zinc-200">(по желанию)</span>
+                    Telegram <span className="text-accent">*</span>
                   </label>
                   <input
                     id={`${idPrefix}-tg`}
                     type="text"
+                    required
                     className={field}
                     placeholder="@username или ссылка"
                     autoComplete="off"
@@ -318,10 +421,15 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
                     onChange={(e) => set("consent", e.target.checked)}
                   />
                   <span className="text-zinc-700 dark:text-[#ddd1ba]">
-                    Согласен на первичный контакт по заявке и понимаю, что сейчас это локальный тестовый приём
-                    без внешней CRM.
+                    Согласен на первичный контакт по заявке.
                   </span>
                 </label>
+
+                {submitErr ? (
+                  <p className="rounded-2xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm font-medium text-accent dark:text-accent" role="alert">
+                    {submitErr}
+                  </p>
+                ) : null}
 
                 <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:justify-end">
                   <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onClose}>
@@ -339,9 +447,7 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
                 </p>
                 <p className="mt-4 font-display text-lg uppercase text-zinc-900 dark:text-zinc-100">Подарок зафиксирован!</p>
                 <p className="mt-2 text-sm font-medium leading-relaxed text-zinc-900 dark:text-zinc-100">
-                  Анкета сохранена. Позже её можно будет подключить к CRM или почте, а сейчас данные уже есть в
-                  статистике и в{" "}
-                  <code className="text-xs">localStorage</code> браузера.
+                  Анкета отправлена. Спасибо! Мы получили заявку и скоро свяжемся с вами.
                 </p>
                 <Button type="button" variant="primary" className="mt-8 w-full sm:w-auto" onClick={onClose}>
                   Закрыть

@@ -33,7 +33,6 @@ jobs:
           NEXT_PUBLIC_SITE_URL: https://sanchaevkirill.ru
           NEXT_PUBLIC_DEPLOY_REF: ${{ github.sha }}
           NEXT_PUBLIC_GIT_SHA: ${{ github.sha }}
-          DATABASE_URL: file:./dev.db
           NODE_OPTIONS: --max-old-space-size=8192
         run: node scripts/build-beget-static.cjs
 

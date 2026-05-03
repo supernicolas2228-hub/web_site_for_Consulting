@@ -6,29 +6,31 @@
     "node": ">=18.17.0"
   },
   "scripts": {
-    "dev": "node scripts/ensure-env.cjs && node scripts/prisma-generate.cjs && next dev -p 3030 -H 127.0.0.1",
-    "dev:lan": "node scripts/ensure-env.cjs && node scripts/prisma-generate.cjs && next dev -p 3030 -H 0.0.0.0",
+    "dev": "node scripts/ensure-env.cjs && next dev -p 3030 -H 127.0.0.1",
+    "dev:lan": "node scripts/ensure-env.cjs && next dev -p 3030 -H 0.0.0.0",
     "dev:public": "node scripts/dev-public.cjs",
     "dev:public:cf": "node scripts/dev-public-cf.cjs",
     "dev:phone": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-phone.ps1",
-    "build": "node scripts/ensure-env.cjs && node scripts/prisma-generate.cjs && next build",
+    "build": "node scripts/ensure-env.cjs && next build",
+    "build:beget-shared": "node scripts/build-beget-shared.cjs",
     "build:beget": "node scripts/build-beget-static.cjs",
     "beget:export": "node scripts/build-beget-static.cjs",
     "beget:zip": "node scripts/build-beget-static.cjs && node scripts/zip-beget-out.cjs",
-    "deploy": "npm run migrate:deploy && npm run build",
+    "deploy": "npm run build",
     "deploy:vps": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-vps.ps1",
     "deploy:beget": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-beget.ps1",
+    "deploy:beget:node": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-beget-node.ps1",
     "deploy:beget:upload": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-beget.ps1 -UploadOnly",
     "ship": "powershell -ExecutionPolicy Bypass -File ./scripts/ship.ps1",
-    "pack:standalone": "powershell -ExecutionPolicy Bypass -File ./scripts/package-standalone.ps1",
-    "release:vps": "powershell -ExecutionPolicy Bypass -File ./scripts/package-standalone.ps1",
+    "pack:standalone": "node scripts/package-standalone.cjs",
+    "pack:standalone:win": "powershell -ExecutionPolicy Bypass -File ./scripts/package-standalone-robocopy.ps1",
+    "beget:zip-node-src": "powershell -ExecutionPolicy Bypass -File ./scripts/make-beget-node-src.ps1",
+    "release:vps": "node scripts/package-standalone.cjs",
     "deploy:vps:password": "python scripts/deploy-ssh-paramiko.py",
     "start": "node scripts/ensure-env.cjs && next start",
-    "migrate:deploy": "node scripts/migrate-deploy.cjs",
-    "postinstall": "node scripts/ensure-env.cjs && node scripts/prisma-generate.cjs"
+    "postinstall": "node scripts/postinstall-safe.cjs"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0",
     "framer-motion": "^11.11.17",
     "gsap": "^3.12.2",
     "lenis": "^1.3.21",
@@ -45,7 +47,6 @@
     "eslint": "^8",
     "eslint-config-next": "14.2.18",
     "postcss": "^8",
-    "prisma": "^5.22.0",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
   }

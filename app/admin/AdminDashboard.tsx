@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ClicksChart } from "@/components/admin/ClicksChart";
 import { MetricCard } from "@/components/admin/MetricCard";
@@ -10,57 +10,130 @@ import { VisitsChart } from "@/components/admin/VisitsChart";
 import { site } from "@/config/content";
 import { ANALYTICS_UTM_NONE_LABEL, type AdminAnalytics } from "@/lib/analytics";
 
-function formatLeadData(raw: string | null): string {
-  if (!raw) return "—";
+type LeadRowView = {
+  projectStage: string;
+  formatInterest: string;
+  businessModel: string;
+  mainTask: string;
+  timeline: string;
+  telegram: string;
+  source: string;
+};
+
+function parseLeadData(raw: string | null): LeadRowView {
+  const fallback: LeadRowView = {
+    projectStage: "—",
+    formatInterest: "—",
+    businessModel: "—",
+    mainTask: "—",
+    timeline: "—",
+    telegram: "—",
+    source: "—",
+  };
+  if (!raw) return fallback;
   try {
     const o = JSON.parse(raw) as Record<string, unknown>;
-    const utm = o.utm as Record<string, string> | undefined;
-    if (utm?.utm_source) return `utm: ${utm.utm_source}`;
-    return JSON.stringify(o).slice(0, 120);
+    return {
+      projectStage: String(o.projectStage || "—"),
+      formatInterest: String(o.formatInterest || "—"),
+      businessModel: String(o.businessModel || "—"),
+      mainTask: String(o.mainTask || "—"),
+      timeline: String(o.timeline || "—"),
+      telegram: String(o.telegram || "—"),
+      source: String(o.source || "—"),
+    };
   } catch {
-    return raw.slice(0, 120);
+    return fallback;
   }
 }
 
 export function AdminDashboard() {
   const router = useRouter();
   const [data, setData] = useState<AdminAnalytics | null>(null);
+  const dataRef = useRef<AdminAnalytics | null>(null);
   const [err, setErr] = useState("");
+  const [leadFilter, setLeadFilter] = useState<"all" | "new">("all");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const load = async () => {
+      if (!cancelled && !dataRef.current) setLoading(true);
+      const ac = new AbortController();
+      const timer = window.setTimeout(() => ac.abort(), 35_000);
       try {
-        const res = await fetch("/api/analytics", { cache: "no-store" });
+        const res = await fetch("/api/analytics", {
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: ac.signal,
+        });
         if (res.status === 401) {
           router.replace("/admin/login");
           return;
         }
         if (!res.ok) throw new Error("load");
         const json = (await res.json()) as AdminAnalytics;
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setData(json);
+          setErr("");
+        }
       } catch {
-        if (!cancelled) setErr("Не удалось загрузить аналитику");
+        if (!cancelled) {
+          setErr("Проблема с сетью или сервером. Пробуем переподключиться…");
+        }
+      } finally {
+        window.clearTimeout(timer);
+        if (!cancelled) setLoading(false);
       }
-    })();
+    };
+    void load();
+    const t = window.setInterval(() => {
+      void load();
+    }, 10_000);
     return () => {
       cancelled = true;
+      window.clearInterval(t);
     };
   }, [router]);
 
   async function logout() {
-    await fetch("/api/admin/logout", { method: "POST" });
+    await fetch("/api/admin/logout", { method: "POST", credentials: "same-origin", cache: "no-store" });
     router.replace("/admin/login");
     router.refresh();
   }
 
-  if (err) {
-    return <p className="text-accent">{err}</p>;
+  if (err && !data) {
+    return (
+      <div className="space-y-3">
+        <p className="text-accent">{err}</p>
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="inline-flex min-h-[42px] items-center justify-center rounded-lg border border-accent/40 bg-accent/10 px-4 text-sm font-semibold text-accent hover:bg-accent/15"
+        >
+          Повторить
+        </button>
+      </div>
+    );
+  }
+
+  if (loading && !data) {
+    return <p className="text-zinc-500 dark:text-white">Загрузка...</p>;
   }
 
   if (!data) {
-    return <p className="text-zinc-500 dark:text-white">Загрузка...</p>;
+    return <p className="text-zinc-500 dark:text-white">Ожидание данных…</p>;
   }
+
+  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const filteredLeads =
+    leadFilter === "new"
+      ? data.recentLeads.filter((row) => new Date(row.at).getTime() >= oneDayAgo)
+      : data.recentLeads;
 
   const ranges = [
     { key: "today" as const, title: "Сегодня" },
@@ -79,10 +152,17 @@ export function AdminDashboard() {
             Аналитика
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-white">
-            {(site.name.trim() || site.nameEn).trim() || "Сайт"} — дашборд
+            {(site.name.trim() || site.nameEn).trim() || "Сайт"} — дашборд · посещения считаются с главной
+            страницы, не со страницы входа в админку
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <a
+            href="#new-forms"
+            className="inline-flex min-h-[48px] items-center justify-center rounded-lg border border-accent/35 bg-accent/10 px-5 text-sm font-semibold text-accent hover:bg-accent/15"
+          >
+            Новые анкеты
+          </a>
           <ThemeToggle />
           <Link
             href="/"
@@ -102,17 +182,30 @@ export function AdminDashboard() {
 
       {ranges.map(({ key, title }) => {
         const m = data[key];
+        const starterCombined = m.starterClicks + m.starterSubmits;
         return (
           <section key={key}>
             <h2 className="mb-4 font-display text-xl uppercase tracking-wide text-zinc-800 dark:text-white">
               {title}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <MetricCard label="Посещения" value={m.visits} />
-              <MetricCard label="Запрос" value={m.starterClicks} />
+              <MetricCard
+                label="Посещения"
+                value={m.visits}
+                hint="каждое открытие главной · повтор после «Назад» из кэша теперь тоже учитывается"
+              />
+              <MetricCard
+                label="Запрос"
+                value={starterCombined}
+                hint={
+                  starterCombined === 0
+                    ? "открыли модалку или отправили анкету"
+                    : `${m.starterClicks} клик по кнопке · ${m.starterSubmits} анкета`
+                }
+              />
               <MetricCard label="К тарифам" value={m.productClicks} />
               <MetricCard label="CTA" value={m.pricingClicks} />
-              <MetricCard label="Конверсия" value={`${m.conversionPct}%`} hint="все клики / визиты" />
+              <MetricCard label="Конверсия" value={`${m.conversionPct}%`} hint="клики, анкеты и CTA к визитам" />
             </div>
           </section>
         );
@@ -248,28 +341,79 @@ export function AdminDashboard() {
         </div>
       </section>
 
-      <section className={panel}>
-        <h3 className="font-display text-lg uppercase text-zinc-800 dark:text-white">
-          Заявки и быстрые запросы
-        </h3>
-        <p className="mt-1 text-xs text-zinc-500 dark:text-white">Последние события с источником в данных</p>
+      <section id="new-forms" className={panel}>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 className="font-display text-lg uppercase text-zinc-800 dark:text-white">
+              Новые анкеты
+            </h3>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-white">Сверху самые новые заявки</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setLeadFilter("all")}
+              className={`inline-flex min-h-[40px] items-center justify-center rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.08em] ${
+                leadFilter === "all"
+                  ? "border border-accent/40 bg-accent/15 text-accent"
+                  : "border border-stroke/20 bg-white/80 text-zinc-700 hover:border-accent/25 dark:border-white/15 dark:bg-black/35 dark:text-white"
+              }`}
+            >
+              Все
+            </button>
+            <button
+              type="button"
+              onClick={() => setLeadFilter("new")}
+              className={`inline-flex min-h-[40px] items-center justify-center rounded-lg px-4 text-xs font-semibold uppercase tracking-[0.08em] ${
+                leadFilter === "new"
+                  ? "border border-accent/40 bg-accent/15 text-accent"
+                  : "border border-stroke/20 bg-white/80 text-zinc-700 hover:border-accent/25 dark:border-white/15 dark:bg-black/35 dark:text-white"
+              }`}
+            >
+              Новые (24ч)
+            </button>
+          </div>
+        </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="text-zinc-500 dark:text-white">
                 <th className="pb-2 pr-4 font-semibold">Время</th>
-                <th className="pb-2 font-semibold">Источник / данные</th>
+                <th className="pb-2 pr-4 font-semibold">Telegram</th>
+                <th className="pb-2 pr-4 font-semibold">Этап</th>
+                <th className="pb-2 pr-4 font-semibold">Формат</th>
+                <th className="pb-2 pr-4 font-semibold">Модель</th>
+                <th className="pb-2 pr-4 font-semibold">Задача</th>
+                <th className="pb-2 pr-4 font-semibold">Срок</th>
+                <th className="pb-2 font-semibold">Источник</th>
               </tr>
             </thead>
             <tbody>
-              {data.recentLeads.map((row, idx) => (
-                <tr key={`${row.at}-${idx}`} className="border-t border-stroke/15 dark:border-white/10">
-                  <td className="whitespace-nowrap py-2 pr-4 text-zinc-600 dark:text-white">
-                    {new Date(row.at).toLocaleString("ru-RU")}
+              {filteredLeads.length === 0 ? (
+                <tr className="border-t border-stroke/15 dark:border-white/10">
+                  <td colSpan={8} className="py-3 text-zinc-600 dark:text-white/80">
+                    Заявок пока нет.
                   </td>
-                  <td className="py-2 text-zinc-800 dark:text-white">{formatLeadData(row.raw)}</td>
                 </tr>
-              ))}
+              ) : (
+                filteredLeads.map((row, idx) => {
+                  const lead = parseLeadData(row.raw);
+                  return (
+                    <tr key={`${row.at}-${idx}`} className="border-t border-stroke/15 align-top dark:border-white/10">
+                      <td className="whitespace-nowrap py-2 pr-4 text-zinc-600 dark:text-white">
+                        {new Date(row.at).toLocaleString("ru-RU")}
+                      </td>
+                      <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.telegram}</td>
+                      <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.projectStage}</td>
+                      <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.formatInterest}</td>
+                      <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.businessModel}</td>
+                      <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.mainTask}</td>
+                      <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.timeline}</td>
+                      <td className="whitespace-pre-wrap py-2 text-zinc-800 dark:text-white">{lead.source}</td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

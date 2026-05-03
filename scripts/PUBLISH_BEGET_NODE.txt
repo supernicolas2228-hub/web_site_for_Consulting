@@ -1,0 +1,8 @@
+Node (Passenger) on sanchaevkirill.ru — анкеты в data/site-events.jsonl, аналитика и /admin
+
+1) В .env локально: NEXT_PUBLIC_SITE_URL=https://sanchaevkirill.ru, ADMIN_PASSWORD=..., BEGET_SSH=...
+2) Выкладка: npm run deploy:beget:node
+3) Не заливайте npm run deploy:beget (статика в public_html) поверх Node — сотрёт index из Passenger. Только deploy:beget:node.
+
+Проверка: GET https://sanchaevkirill.ru/api/health -> database: true
+Админка: https://sanchaevkirill.ru/admin

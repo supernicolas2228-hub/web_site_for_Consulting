@@ -1,7 +1,0 @@
--- CreateTable
-CREATE TABLE "Event" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "event" TEXT NOT NULL,
-    "data" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);

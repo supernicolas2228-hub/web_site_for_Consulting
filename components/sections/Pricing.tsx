@@ -84,10 +84,60 @@ export function Pricing() {
   const ref = useRef(null);
   const inView = useInView(ref, { once: true, margin: "-12%" });
   const [headDone, setHeadDone] = useState(false);
+  const [expandedPlanId, setExpandedPlanId] = useState<string | null>(null);
   const starterPack = useStarterPack();
   const joinHref = links.joinSellIsLife;
   const joinCta = outboundAnchorProps(joinHref);
   const payLinkReady = !isPlaceholderLink(joinHref);
+  const planDetails: Record<string, string> = {
+    session:
+      "СТРАТЕГИЧЕСКАЯ СЕССИЯ\n" +
+      "• 0 ₽\n" +
+      "• 45-60 минут\n" +
+      "• Телеграм / Телемост\n\n" +
+      "Что это:\n" +
+      "• Спокойный стартовый звонок, чтобы познакомиться и понять, подходим ли друг другу.\n" +
+      "• Фиксируем текущую точку А: где вы сейчас по доходу, клиентам и системе.\n" +
+      "• Определяем ближайший шаг и что даст самый быстрый результат.\n" +
+      "• Без давления и обязательств: после звонка сами решаете, идти ли дальше.",
+    consult:
+      "КОНСУЛЬТАЦИЯ\n" +
+      "• 5 500 ₽\n" +
+      "• 2-3 часа\n" +
+      "• Телеграм, Телемост\n\n" +
+      "Что внутри:\n" +
+      "1) Разбор (30-40 минут)\n" +
+      "• Ответы на вопросы\n" +
+      "• Определение точки А (доход и так далее)\n" +
+      "• Определение точки Б\n" +
+      "• Какие ошибки (почему нет денег/клиентов)\n\n" +
+      "2) Стратегия / план действий (40-50 минут)\n" +
+      "• Пишем стратегию на конкретный срок\n\n" +
+      "3) Информация (30-40 минут)\n" +
+      "• Продажи в звонке\n" +
+      "• Оффер\n" +
+      "• Поиск клиентов",
+    personal:
+      "ЛИЧНАЯ РАБОТА\n" +
+      "• 70 000 ₽\n" +
+      "• 90 дней\n" +
+      "• 60-90 минут созвон\n" +
+      "• 12 звонков (1 раз в неделю)\n" +
+      "• Телеграм, Телемост\n\n" +
+      "Что внутри:\n" +
+      "• Корректировка/написание стратегии\n" +
+      "• Помощь с клиентами (как правильно продавать)\n" +
+      "• Ответы на вопросы\n\n" +
+      "• Чат в Телеграме\n" +
+      "• Отвечаю в течение дня (вопросы, помощь)\n\n" +
+      "• Даю знания\n" +
+      "• Проверяю выполнение\n" +
+      "• Говорю, что исправить\n\n" +
+      "• Созвон по офферу\n" +
+      "• Как писать лидам/клиентам\n" +
+      "• Как закрывать сделки\n" +
+      "• Разбор переписок/звонков",
+  };
 
   return (
     <motion.section
@@ -228,19 +278,40 @@ export function Pricing() {
                     {plan.cta}
                   </Button>
                 )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="mt-3 w-full !justify-center"
+                  onClick={() =>
+                    setExpandedPlanId((prev) => (prev === plan.id ? null : plan.id))
+                  }
+                >
+                  {expandedPlanId === plan.id ? "Скрыть подробности" : "Узнать больше"}
+                </Button>
+                {expandedPlanId === plan.id ? (
+                  <div className="mt-4 rounded-xl border border-stroke/20 bg-white/70 p-4 dark:border-white/10 dark:bg-black/35">
+                    <p className="whitespace-pre-line text-sm leading-relaxed text-zinc-800 dark:text-zinc-100">
+                      {planDetails[plan.id]}
+                    </p>
+                  </div>
+                ) : null}
               </PlanCard>
             );
           })}
         </motion.div>
 
-        <motion.p
+        <motion.button
+          type="button"
           variants={fadeUp}
           initial="hidden"
           animate={inView && headDone ? "show" : "hidden"}
-          className="glass-panel mx-auto mt-10 max-w-lg px-5 py-4 text-center text-xs font-medium leading-relaxed text-zinc-900 dark:text-zinc-100"
+          onClick={() => {
+            starterPack.open("pricing_footer_note");
+          }}
+          className="glass-panel mx-auto mt-10 block max-w-lg px-5 py-4 text-center text-xs font-medium leading-relaxed text-zinc-900 transition hover:border-accent/35 hover:text-zinc-950 dark:text-zinc-100 dark:hover:text-white"
         >
           {pricing.footerNote}
-        </motion.p>
+        </motion.button>
       </div>
     </motion.section>
   );

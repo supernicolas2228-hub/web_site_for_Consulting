@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { StarterPackModal } from "@/components/starter-pack/StarterPackModal";
+import { track } from "@/lib/track";
 
 type Ctx = {
   open: (from?: string) => void;
@@ -15,6 +16,7 @@ export function StarterPackProvider({ children }: { children: React.ReactNode })
   const [source, setSource] = useState("unknown");
 
   const open = useCallback((from = "unknown") => {
+    void track("click_starter_pack", { from });
     setSource(from);
     setOpen(true);
   }, []);

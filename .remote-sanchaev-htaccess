@@ -1,0 +1,15 @@
+# ~/sanchaevkirill.ru/public_html/.htaccess
+#
+# Beget: PassengerStartupFile — только entry в Node (server.js), не bash.
+# Node из ~/.local/bin: в файловом менеджере для каталога ~/.local
+# «Инструменты» → «Настроить общий доступ…» → Чтение и запись → Включая вложенные папки.
+#
+# PORT из .htaccess не задаём — подставляет Passenger.
+
+PassengerNodejs /home/s/supernh5/.local/bin/node
+PassengerAppRoot /home/s/supernh5/sanchaevkirill.ru/public_html/app_runtime
+PassengerAppType node
+PassengerStartupFile server.js
+
+SetEnv NODE_ENV production
+SetEnv LISTEN_HOST 127.0.0.1

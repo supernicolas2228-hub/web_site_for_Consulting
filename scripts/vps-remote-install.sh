@@ -46,33 +46,14 @@ load_deploy_env() {
     . ./.env
   fi
   set +a
-  if [ -z "${DATABASE_URL:-}" ] && [ -n "${DB_CONNECTION_STRING:-}" ]; then
-    export DATABASE_URL="$DB_CONNECTION_STRING"
-  fi
-  export DATABASE_URL="${DATABASE_URL:-file:./prisma/production.db}"
-  case "${DATABASE_URL}" in
-    *dev.db*)
-      export DATABASE_URL="file:./prisma/production.db"
-      ;;
-  esac
 }
 
 load_deploy_env
-# Ensure parent dir exists for relative SQLite paths (file:./prisma/...)
-_db_path="${DATABASE_URL#file:}"
-if [ "$_db_path" != "$DATABASE_URL" ]; then
-  mkdir -p "$(dirname "$_db_path")"
-fi
-unset _db_path
+mkdir -p data
 
 unset NODE_ENV
 npm ci
 export NODE_ENV=production
-
-npx prisma migrate deploy --schema prisma/sqlite/schema.prisma || {
-  echo "prisma migrate deploy failed, trying db push" >&2
-  npx prisma db push --schema prisma/sqlite/schema.prisma
-}
 
 npm run build
 

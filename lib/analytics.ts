@@ -1,8 +1,11 @@
-import type { Event } from "@prisma/client";
+import type { StoredEventRecord } from "@/lib/site-event-store";
 
 export type RangeMetrics = {
   visits: number;
+  /** Клики по кнопке «Запрос» (открытие модалки). */
   starterClicks: number;
+  /** Отправленная анкета стартового набора (`starter_pack_survey_submit`). */
+  starterSubmits: number;
   productClicks: number;
   pricingClicks: number;
   conversionPct: number;
@@ -19,14 +22,25 @@ export type AdminAnalytics = {
   recentLeads: { at: string; raw: string | null }[];
 };
 
-function startOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
+/** Границы «сегодня / 7 дней / 30 дней» — по календарю Москвы, чтобы совпадало с ожиданием в РФ. */
+const REPORT_TZ = "Europe/Moscow";
+
+function calendarDayKeyInTz(moment: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(moment);
 }
 
-function yyyyMmDd(d: Date): string {
-  return d.toISOString().slice(0, 10);
+function moscowStartOfCalendarDayUtc(ymd: string): Date {
+  return new Date(`${ymd}T00:00:00+03:00`);
+}
+
+function addCalendarDaysFromKey(ymd: string, deltaDays: number): string {
+  const base = moscowStartOfCalendarDayUtc(ymd).getTime() + deltaDays * 86_400_000;
+  return calendarDayKeyInTz(new Date(base), REPORT_TZ);
 }
 
 function parseData(raw: string | null): Record<string, unknown> {
@@ -39,17 +53,58 @@ function parseData(raw: string | null): Record<string, unknown> {
   }
 }
 
-function countInRange(events: Event[], start: Date, end: Date) {
-  const inR = events.filter((e) => e.createdAt >= start && e.createdAt < end);
+function toDateSafe(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "number") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value === "string") {
+    const n = Number(value);
+    if (Number.isFinite(n)) {
+      const dFromNum = new Date(n);
+      if (!Number.isNaN(dFromNum.getTime())) return dFromNum;
+    }
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+type EventWithDate = StoredEventRecord & { createdAtDate: Date };
+
+function normalizeEvents(all: StoredEventRecord[]): EventWithDate[] {
+  const out: EventWithDate[] = [];
+  for (const e of all) {
+    let createdAtDate = toDateSafe((e as unknown as { createdAt?: unknown }).createdAt);
+    if (!createdAtDate) {
+      const d = parseData(e.data);
+      createdAtDate =
+        toDateSafe(d.timestamp) ||
+        toDateSafe(d.ts) ||
+        toDateSafe(d.submittedAt) ||
+        new Date();
+    }
+    out.push({ ...e, createdAtDate });
+  }
+  return out;
+}
+
+function countInRange(events: EventWithDate[], start: Date, end: Date) {
+  const inR = events.filter((e) => e.createdAtDate >= start && e.createdAtDate < end);
   const visits = inR.filter((e) => e.event === "page_view").length;
   const starterClicks = inR.filter((e) => e.event === "click_starter_pack").length;
+  const starterSubmits = inR.filter((e) => e.event === "starter_pack_survey_submit").length;
   const productClicks = inR.filter((e) => e.event === "click_product").length;
   const pricingClicks = inR.filter((e) => e.event === "click_pricing").length;
-  const allClicks = starterClicks + productClicks + pricingClicks;
+  const allClicks = starterClicks + starterSubmits + productClicks + pricingClicks;
   const conversionPct = visits > 0 ? Math.round((allClicks / visits) * 1000) / 10 : 0;
   return {
     visits,
     starterClicks,
+    starterSubmits,
     productClicks,
     pricingClicks,
     conversionPct,
@@ -59,7 +114,7 @@ function countInRange(events: Event[], start: Date, end: Date) {
 /** Подпись строки для визитов без `?utm_source=` — чтобы блок не был пустым */
 export const ANALYTICS_UTM_NONE_LABEL = "Без UTM-метки" as const;
 
-function aggregateUtm(events: Event[]): { source: string; count: number }[] {
+function aggregateUtm(events: EventWithDate[]): { source: string; count: number }[] {
   const map = new Map<string, number>();
   let withoutUtm = 0;
   for (const e of events) {
@@ -78,40 +133,37 @@ function aggregateUtm(events: Event[]): { source: string; count: number }[] {
   return rows.slice(0, 15);
 }
 
-function visitsByDayRange(events: Event[], days: number): { date: string; views: number }[] {
-  const today = startOfDay(new Date());
+function visitsByDayRange(events: EventWithDate[], days: number): { date: string; views: number }[] {
+  const todayKey = calendarDayKeyInTz(new Date(), REPORT_TZ);
   const out: { date: string; views: number }[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const day = new Date(today);
-    day.setDate(day.getDate() - i);
-    const next = new Date(day);
-    next.setDate(next.getDate() + 1);
+    const dayKey = addCalendarDaysFromKey(todayKey, -i);
+    const dayStart = moscowStartOfCalendarDayUtc(dayKey);
+    const dayEnd = moscowStartOfCalendarDayUtc(addCalendarDaysFromKey(dayKey, 1));
     const views = events.filter(
-      (e) => e.event === "page_view" && e.createdAt >= day && e.createdAt < next,
+      (e) => e.event === "page_view" && e.createdAtDate >= dayStart && e.createdAtDate < dayEnd,
     ).length;
-    out.push({ date: yyyyMmDd(day), views });
+    out.push({ date: dayKey, views });
   }
   return out;
 }
 
-export function buildAnalytics(all: Event[]): AdminAnalytics {
+export function buildAnalytics(all: StoredEventRecord[]): AdminAnalytics {
+  const safeEvents = normalizeEvents(all);
   const now = new Date();
-  const todayStart = startOfDay(now);
-  const tomorrow = new Date(todayStart);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  const todayKey = calendarDayKeyInTz(now, REPORT_TZ);
+  const todayStart = moscowStartOfCalendarDayUtc(todayKey);
+  const tomorrow = moscowStartOfCalendarDayUtc(addCalendarDaysFromKey(todayKey, 1));
 
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(weekStart.getDate() - 6);
+  const weekStart = moscowStartOfCalendarDayUtc(addCalendarDaysFromKey(todayKey, -6));
+  const monthStart = moscowStartOfCalendarDayUtc(addCalendarDaysFromKey(todayKey, -29));
 
-  const monthStart = new Date(todayStart);
-  monthStart.setDate(monthStart.getDate() - 29);
+  const today = countInRange(safeEvents, todayStart, tomorrow);
+  const week = countInRange(safeEvents, weekStart, tomorrow);
+  const month = countInRange(safeEvents, monthStart, tomorrow);
 
-  const today = countInRange(all, todayStart, tomorrow);
-  const week = countInRange(all, weekStart, tomorrow);
-  const month = countInRange(all, monthStart, tomorrow);
-
-  const monthEvents = all.filter((e) => e.createdAt >= monthStart && e.createdAt < tomorrow);
-  const visitsByDay = visitsByDayRange(all, 30);
+  const monthEvents = safeEvents.filter((e) => e.createdAtDate >= monthStart && e.createdAtDate < tomorrow);
+  const visitsByDay = visitsByDayRange(safeEvents, 30);
 
   const clicksByLabel = [
     {
@@ -147,11 +199,11 @@ export function buildAnalytics(all: Event[]): AdminAnalytics {
     .sort((a, b) => b.views - a.views)
     .slice(0, 7);
 
-  const leads = all
-    .filter((e) => e.event === "click_starter_pack" || e.event === "starter_pack_survey_submit")
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .slice(0, 40)
-    .map((e) => ({ at: e.createdAt.toISOString(), raw: e.data }));
+  const leads = safeEvents
+    .filter((e) => e.event === "starter_pack_survey_submit")
+    .sort((a, b) => b.createdAtDate.getTime() - a.createdAtDate.getTime())
+    .slice(0, 100)
+    .map((e) => ({ at: e.createdAtDate.toISOString(), raw: e.data }));
 
   return {
     today,

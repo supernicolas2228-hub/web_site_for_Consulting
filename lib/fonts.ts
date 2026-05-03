@@ -9,6 +9,11 @@ export const fontManrope = Manrope({
   display: "swap",
   variable: "--font-manrope",
   adjustFontFallback: true,
+  /**
+   * Первые секунды на экране — прелоадер с font-display (Unbounded);
+   * предзагрузка Manrope тогда даёт предупреждение Chrome про «preloaded but not used».
+   */
+  preload: false,
 });
 
 export const fontUnbounded = Unbounded({

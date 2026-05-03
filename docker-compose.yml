@@ -1,10 +1,11 @@
-# Локальный PostgreSQL для разработки (опционально):
-# docker compose up -d
-# Затем в .env: DATABASE_URL="postgresql://sellislife:sellislife@localhost:5432/sellislife?schema=public"
+# Опционально: локальный PostgreSQL для других задач.
+# Само приложение Next.js хранит аналитику в data/site-events.jsonl и НЕ требует этого контейнера.
+#
+# Запуск: docker compose up -d
 
 services:
   db:
-    image: postgres:16-alpine # как на хостинге (PostgreSQL 16)
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: sellislife

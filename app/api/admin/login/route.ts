@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminSessionCookieSecure } from "@/lib/admin-cookie-secure";
+import { adminSessionCookieBase } from "@/lib/admin-cookie-secure";
 import { ADMIN_COOKIE, makeAdminSessionToken } from "@/lib/admin-session";
 import { getAdminPassword } from "@/lib/admin-password";
 
@@ -15,10 +15,7 @@ export async function POST(req: Request) {
     const token = await makeAdminSessionToken(expected);
     const res = NextResponse.json({ ok: true });
     res.cookies.set(ADMIN_COOKIE, token, {
-      httpOnly: true,
-      secure: adminSessionCookieSecure(req),
-      sameSite: "lax",
-      path: "/",
+      ...adminSessionCookieBase(req),
       maxAge: 60 * 60 * 24 * 7,
     });
     return res;
