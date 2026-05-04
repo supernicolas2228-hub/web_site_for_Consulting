@@ -6,9 +6,8 @@ import gsap from "gsap";
 import { hero } from "@/config/content";
 import { shouldSkipHeavyPreloader } from "@/lib/preloader-skip";
 
-const SESSION_KEY = "ks_preloader_done_v9";
+const SESSION_KEY = "ks_preloader_done_v10";
 
-/** Слова + «купюры» — только desktop (sm+), на телефоне DOM не рендерим → нет лагов. */
 type FxBurstItem =
   | { kind: "word"; text: string; emphasize?: boolean }
   | { kind: "money"; text: string };
@@ -32,10 +31,12 @@ const FX_BURST: readonly FxBurstItem[] = [
   { kind: "money", text: "💶" },
 ] as const;
 
-const MAX_MS = 3200;
-const MOBILE_MAX_MS = 1600;
+/** На телефоне анимируем только первые N — визуально как на ноутбуке, без 40+ твинов. */
+const MOBILE_BURST_CAP = 10;
 
-/** Показать сцену снова: открой главную с `?replayLoader`. */
+const MAX_MS = 3200;
+const MOBILE_MAX_MS = 2400;
+
 function wantsReplayLoader(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -86,8 +87,7 @@ function whenLayoutStable(run: () => void) {
 }
 
 /**
- * Имя по центру → на desktop из центра разлетаются слова/символы (GSAP).
- * На телефонах — только короткое появление имени и fade-out (без частиц, без лагов).
+ * Имя по центру → разлетаются слова и «деньги» (desktop — все; mobile — те же типы, cap по числу).
  */
 export function SitePreloader() {
   const [active, setActive] = useState(true);
@@ -145,72 +145,7 @@ export function SitePreloader() {
       if (!killedRef.current) setActive(false);
     };
 
-    /** Телефоны: без частиц, 3 цели GSAP, короткий таймлайн. */
-    const runMobileLight = () => {
-      if (killedRef.current) return;
-      try {
-        const root = rootRef.current;
-        const box = boxRef.current;
-        const nameEl = nameRef.current;
-        if (!root || !box || !nameEl) {
-          endAndHide();
-          return;
-        }
-
-        const lock = () => {
-          elBody.style.overflow = "hidden";
-          elHtml.style.overflow = "hidden";
-        };
-        lock();
-
-        safetyRef.current = window.setTimeout(() => {
-          try {
-            gsap.killTweensOf(gsapTargetsRef.current);
-          } catch {
-            /* ignore */
-          }
-          gsap.set(root, { autoAlpha: 0, pointerEvents: "none" });
-          endAndHide();
-        }, MOBILE_MAX_MS);
-
-        if (prefersReduced()) {
-          gsap
-            .timeline()
-            .to(root, { autoAlpha: 0, duration: 0.4, ease: "power2.inOut" })
-            .add(() => endAndHide());
-          return;
-        }
-
-        gsapTargetsRef.current = [root, box, nameEl];
-        gsap.set(nameEl, { opacity: 0, y: 18, scale: 0.97, transformOrigin: "50% 50%" });
-        gsap.set(root, { autoAlpha: 1 });
-
-        const tl = gsap.timeline();
-        tl.fromTo(box, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.22, ease: "power2.out" })
-          .to(
-            nameEl,
-            { opacity: 1, y: 0, scale: 1, duration: 0.42, ease: "power2.out" },
-            "-=0.1",
-          )
-          .to({}, { duration: 0.14 })
-          .to(root, {
-            autoAlpha: 0,
-            duration: 0.36,
-            ease: "power2.inOut",
-            onComplete: () => {
-              window.clearTimeout(safetyRef.current);
-              markDone();
-              unlock();
-              if (!killedRef.current) setActive(false);
-            },
-          });
-      } catch {
-        endAndHide();
-      }
-    };
-
-    /** Desktop: полный вылет частиц. */
-    const runDesktopBurst = () => {
+    const runBurst = () => {
       if (killedRef.current) return;
       try {
         const root = rootRef.current;
@@ -222,6 +157,9 @@ export function SitePreloader() {
           return;
         }
 
+        const isNarrow = window.matchMedia("(max-width: 639px)").matches;
+        const maxMs = isNarrow ? MOBILE_MAX_MS : MAX_MS;
+
         const lock = () => {
           elBody.style.overflow = "hidden";
           elHtml.style.overflow = "hidden";
@@ -236,7 +174,7 @@ export function SitePreloader() {
           }
           gsap.set(root, { autoAlpha: 0, pointerEvents: "none" });
           endAndHide();
-        }, MAX_MS);
+        }, maxMs);
 
         if (prefersReduced()) {
           gsap
@@ -254,17 +192,44 @@ export function SitePreloader() {
         const bottom = nameRect.bottom - fxRect.top;
         const cx = (left + right) / 2;
         const cy = (top + bottom) / 2;
+        const nrW = right - left;
+        const nrH = bottom - top;
+        const wrapBoost = isNarrow && nrH > nrW * 0.5 ? 1.48 : 1;
 
-        const vfxEls = fx.querySelectorAll<HTMLElement>(".pre-fx");
-        if (vfxEls.length === 0) {
+        const allFx = Array.from(fx.querySelectorAll<HTMLElement>(".pre-fx"));
+        if (allFx.length === 0) {
           endAndHide();
           return;
         }
 
-        const vfxArr = Array.from(vfxEls);
+        if (isNarrow) {
+          gsap.set(allFx.slice(MOBILE_BURST_CAP), { display: "none" });
+        }
+        const vfxArr = isNarrow ? allFx.slice(0, MOBILE_BURST_CAP) : allFx;
         gsapTargetsRef.current = [root, box, nameEl, ...vfxArr];
 
         const sideFlight = () => {
+          if (isNarrow) {
+            const halfW = Math.max(46, (nrW / 2) * wrapBoost + 10);
+            const halfH = Math.max(28, (nrH / 2) * wrapBoost + 8);
+            const angle = Math.random() * Math.PI * 2;
+            const ringPad = 18 + Math.random() * 22;
+            const sx = cx + Math.cos(angle) * (halfW + ringPad);
+            const sy = cy + Math.sin(angle) * (halfH + ringPad);
+            const nx = Math.cos(angle);
+            const ny = Math.sin(angle);
+            const dist = 125 + Math.random() * 105;
+            const flyXAbs = sx + nx * dist + (Math.random() - 0.5) * 28;
+            const flyYAbs = sy + ny * dist + (Math.random() - 0.5) * 28;
+            return {
+              spawnX: sx - fxRect.width / 2,
+              spawnY: sy - fxRect.height / 2,
+              flyX: flyXAbs - fxRect.width / 2,
+              flyY: flyYAbs - fxRect.height / 2,
+              rot: (Math.random() - 0.5) * 85,
+              sc: 0.52 + Math.random() * 0.42,
+            };
+          }
           const sidePick = Math.floor(Math.random() * 4);
           const edgeJitter = 16;
           let sx = cx;
@@ -282,7 +247,6 @@ export function SitePreloader() {
             sx = left + Math.random() * Math.max(8, right - left);
             sy = bottom + Math.random() * edgeJitter;
           }
-
           const vx = sx - cx;
           const vy = sy - cy;
           const len = Math.hypot(vx, vy) || 1;
@@ -309,71 +273,80 @@ export function SitePreloader() {
           rotation: 0,
           transformOrigin: "50% 50%",
         });
-        gsap.set(nameEl, { opacity: 0, y: 36, scale: 0.94, transformOrigin: "50% 50%" });
+        gsap.set(nameEl, { opacity: 0, y: isNarrow ? 22 : 36, scale: 0.94, transformOrigin: "50% 50%" });
         gsap.set(root, { autoAlpha: 1 });
 
         const tl = gsap.timeline();
+        const boxIn = isNarrow ? 0.26 : 0.35;
+        const nameIn = isNarrow ? 0.58 : 0.82;
+        const nameEase = isNarrow ? "power2.out" : "power3.out";
 
-        tl.fromTo(box, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.35, ease: "power2.out" })
+        tl.fromTo(box, { autoAlpha: 0 }, { autoAlpha: 1, duration: boxIn, ease: "power2.out" })
           .to(
             nameEl,
-            {
-              opacity: 1,
-              y: 0,
-              scale: 1,
-              duration: 0.82,
-              ease: "power3.out",
-            },
-            "-=0.22",
+            { opacity: 1, y: 0, scale: 1, duration: nameIn, ease: nameEase },
+            isNarrow ? "-=0.14" : "-=0.22",
           )
-          .addLabel("burst", "-=0.28");
+          .addLabel("burst", isNarrow ? "-=0.22" : "-=0.28");
+
+        const popDur = isNarrow ? 0.11 : 0.12;
+        const flyDurMin = isNarrow ? 0.48 : 0.72;
+        const flyDurRand = isNarrow ? 0.14 : 0.12;
+        const rotEase = isNarrow ? 0.45 : 1;
 
         vfxArr.forEach((el, i) => {
           const b = sideFlight();
           gsap.set(el, {
             x: b.spawnX,
             y: b.spawnY,
-            rotation: b.rot * 0.18,
+            rotation: b.rot * 0.18 * rotEase,
             scale: 0.58,
           });
+          const popAt = isNarrow ? i * 0.014 : i * 0.008;
+          const flyAt = isNarrow ? 0.03 + i * 0.018 : 0.02 + i * 0.012;
           tl.to(
             el,
             {
               opacity: 1,
               scale: 0.88 + (i % 3) * 0.05,
-              duration: 0.12,
+              duration: popDur,
               ease: "power2.out",
             },
-            `burst+=${i * 0.008}`,
+            `burst+=${popAt}`,
           ).to(
             el,
             {
               x: b.flyX,
               y: b.flyY,
-              rotation: b.rot,
+              rotation: b.rot * rotEase,
               scale: b.sc,
               opacity: 0,
-              duration: 0.72 + Math.random() * 0.12,
-              ease: "power3.out",
+              duration: flyDurMin + Math.random() * flyDurRand,
+              ease: "power2.out",
             },
-            `burst+=${0.02 + i * 0.012}`,
+            `burst+=${flyAt}`,
           );
         });
 
-        tl.to(
-          nameEl,
-          {
-            opacity: 0.55,
-            scale: 0.985,
-            duration: 0.35,
-            ease: "power2.inOut",
-          },
-          "burst+=0.08",
-        ).to(nameEl, { opacity: 1, scale: 1, duration: 0.55, ease: "power2.out" }, "burst+=0.38");
+        if (isNarrow) {
+          tl.to(
+            nameEl,
+            { opacity: 0.92, scale: 0.99, duration: 0.22, ease: "power2.inOut" },
+            "burst+=0.05",
+          ).to(nameEl, { opacity: 1, scale: 1, duration: 0.32, ease: "power2.out" }, "burst+=0.22");
+        } else {
+          tl.to(
+            nameEl,
+            { opacity: 0.55, scale: 0.985, duration: 0.35, ease: "power2.inOut" },
+            "burst+=0.08",
+          ).to(nameEl, { opacity: 1, scale: 1, duration: 0.55, ease: "power2.out" }, "burst+=0.38");
+        }
 
-        tl.to({}, { duration: 0.35 }).to(root, {
+        const pauseOut = isNarrow ? 0.22 : 0.35;
+        const rootOut = isNarrow ? 0.42 : 0.55;
+        tl.to({}, { duration: pauseOut }).to(root, {
           autoAlpha: 0,
-          duration: 0.55,
+          duration: rootOut,
           ease: "power2.inOut",
           onComplete: () => {
             window.clearTimeout(safetyRef.current);
@@ -387,17 +360,7 @@ export function SitePreloader() {
       }
     };
 
-    const run = () => {
-      if (killedRef.current) return;
-      const isNarrow = typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches;
-      if (isNarrow) {
-        requestAnimationFrame(() => requestAnimationFrame(runMobileLight));
-      } else {
-        whenLayoutStable(runDesktopBurst);
-      }
-    };
-
-    whenDomReady(run);
+    whenDomReady(() => whenLayoutStable(runBurst));
 
     return () => {
       killedRef.current = true;
@@ -447,7 +410,7 @@ export function SitePreloader() {
 
           <div
             ref={fxRef}
-            className="pointer-events-none absolute left-1/2 top-1/2 z-[5] hidden h-[min(78vmin,560px)] w-[min(94vw,620px)] -translate-x-1/2 -translate-y-1/2 sm:block"
+            className="pointer-events-none absolute left-1/2 top-1/2 z-[5] h-[min(78vmin,560px)] w-[min(94vw,620px)] -translate-x-1/2 -translate-y-1/2"
             aria-hidden
           >
             {FX_BURST.map((item, i) => {
@@ -456,10 +419,10 @@ export function SitePreloader() {
                 return (
                   <span
                     key={`${item.text}-${i}`}
-                    className={`pre-fx absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 leading-none select-none ${
+                    className={`pre-fx absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 leading-none select-none will-change-transform max-sm:will-change-[transform,opacity] ${
                       isGlyph
-                        ? "font-display text-[clamp(17px,4.8vmin,30px)] font-black text-amber-200 [text-shadow:0_0_22px_rgb(251_191_36/0.55),0_0_40px_rgb(234_179_8/0.25)]"
-                        : "text-[clamp(19px,5.2vmin,36px)] [filter:drop-shadow(0_0_14px_rgb(251_191_36/0.45))]"
+                        ? "font-display text-[clamp(17px,4.8vmin,30px)] font-black text-amber-200 [text-shadow:0_0_22px_rgb(251_191_36/0.55),0_0_40px_rgb(234_179_8/0.25)] max-sm:text-[clamp(16px,4.4vmin,26px)] max-sm:[text-shadow:0_0_10px_rgba(251,191,36,0.35)]"
+                        : "text-[clamp(19px,5.2vmin,36px)] sm:[filter:drop-shadow(0_0_14px_rgb(251_191_36/0.45))] max-sm:[filter:none]"
                     }`}
                   >
                     {item.text}
@@ -470,10 +433,10 @@ export function SitePreloader() {
               return (
                 <span
                   key={`${item.text}-${i}`}
-                  className={`pre-fx font-display absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-extrabold uppercase leading-none tracking-[0.18em] ${
+                  className={`pre-fx font-display absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-extrabold uppercase leading-none tracking-[0.14em] sm:tracking-[0.18em] will-change-transform max-sm:will-change-[transform,opacity] ${
                     emphasize
-                      ? "text-[clamp(13px,3.6vmin,22px)] text-emerald-300 [text-shadow:0_0_24px_rgb(52_211_153/0.55)]"
-                      : "text-[clamp(11px,3vmin,17px)] text-zinc-400/95 [text-shadow:0_0_16px_rgba(255,255,255,0.12)]"
+                      ? "text-[clamp(13px,3.6vmin,22px)] text-emerald-300 [text-shadow:0_0_24px_rgb(52_211_153/0.55)] max-sm:[text-shadow:0_0_10px_rgba(52,211,153,0.4)]"
+                      : "text-[clamp(11px,3vmin,17px)] text-zinc-400/95 [text-shadow:0_0_16px_rgba(255,255,255,0.12)] max-sm:[text-shadow:none]"
                   }`}
                 >
                   {item.text}
