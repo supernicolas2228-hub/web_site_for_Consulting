@@ -149,9 +149,9 @@ export function SitePreloader() {
     const hideBurstLabelsUntilGsap = () => {
       const fx = fxRef.current;
       if (!fx) return;
-      for (const el of fx.querySelectorAll<HTMLElement>(".pre-fx")) {
+      fx.querySelectorAll<HTMLElement>(".pre-fx").forEach((el) => {
         el.style.opacity = "0";
-      }
+      });
     };
     hideBurstLabelsUntilGsap();
     queueMicrotask(hideBurstLabelsUntilGsap);
