@@ -25,6 +25,8 @@ type LeadPayload = {
   telegram?: string;
   source?: string;
   submittedAt?: string;
+  planId?: string;
+  planLabel?: string;
 };
 
 export async function POST(req: Request) {
@@ -46,6 +48,8 @@ export async function POST(req: Request) {
       telegram,
       source: String(body.source ?? "unknown"),
       submittedAt: String(body.submittedAt ?? new Date().toISOString()),
+      planId: String(body.planId ?? "").trim(),
+      planLabel: String(body.planLabel ?? "").trim(),
     };
 
     await appendSiteEvent("starter_pack_survey_submit", JSON.stringify(payload), new Date());

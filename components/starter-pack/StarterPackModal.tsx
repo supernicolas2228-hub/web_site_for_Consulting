@@ -1,7 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { getStarterPackModalCopy } from "@/config/starter-pack-modal";
 import { STARTER_PACK_SUBMIT_URL } from "@/config/starter-pack";
 import { fetchWithTimeout } from "@/lib/fetch-robust";
 import { isStaticExportSite } from "@/lib/static-site";
@@ -39,6 +40,7 @@ type Props = {
 
 export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
   const reduceMotion = useReducedMotion();
+  const copy = useMemo(() => getStarterPackModalCopy(source), [source]);
   const [form, setForm] = useState<StarterPackFormPayload>(initialForm);
   const [step, setStep] = useState<"form" | "done">("form");
   const [busy, setBusy] = useState(false);
@@ -52,13 +54,13 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
     setForm(initialForm);
     setBusy(false);
     setSubmitErr("");
-  }, [open]);
+  }, [open, source]);
 
   useEffect(() => {
     if (!open) return;
     const t = requestAnimationFrame(() => panelRef.current?.querySelector<HTMLElement>("input, select, textarea")?.focus());
     return () => cancelAnimationFrame(t);
-  }, [open, step]);
+  }, [open, step, copy.title]);
 
   useEffect(() => {
     if (!open) return;
@@ -100,6 +102,8 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
       telegram: telegramNormalized,
       submittedAt: new Date().toISOString(),
       source,
+      planId: copy.planId ?? "",
+      planLabel: copy.planLabel,
     };
 
     try {
@@ -270,7 +274,7 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
     <AnimatePresence>
       {open ? (
         <motion.div
-          key="starter-pack-scroll"
+          key={`starter-pack-${source}`}
           className="fixed inset-0 z-[200]"
           role="presentation"
           initial={{ opacity: 0 }}
@@ -303,16 +307,14 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
                 >
             <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-stroke/15 bg-page/90 px-5 py-4 dark:border-white/10 dark:bg-zinc-950/90 sm:px-6">
               <div>
-                <p className="font-display text-[10px] font-bold uppercase tracking-[0.28em] text-accent">Подарок</p>
+                <p className="font-display text-[10px] font-bold uppercase tracking-[0.28em] text-accent">{copy.eyebrow}</p>
                 <h2
                   id={`${idPrefix}-title`}
                   className="mt-1 font-display text-xl uppercase leading-tight text-zinc-900 dark:text-zinc-100"
                 >
-                  Получите подарок: бесплатная сессия
+                  {copy.title}
                 </h2>
-                <p className="mt-1 text-xs font-medium leading-relaxed text-zinc-800 dark:text-zinc-200">
-                  Заполните короткую анкету, чтобы получить подарок и записаться на бесплатную сессию.
-                </p>
+                <p className="mt-1 text-xs font-medium leading-relaxed text-zinc-800 dark:text-zinc-200">{copy.subtitle}</p>
               </div>
               <button
                 type="button"
@@ -445,10 +447,8 @@ export function StarterPackModal({ open, onClose, source = "unknown" }: Props) {
                 <p className="font-display text-4xl text-accent" aria-hidden>
                   ✓
                 </p>
-                <p className="mt-4 font-display text-lg uppercase text-zinc-900 dark:text-zinc-100">Подарок зафиксирован!</p>
-                <p className="mt-2 text-sm font-medium leading-relaxed text-zinc-900 dark:text-zinc-100">
-                  Анкета отправлена. Спасибо! Мы получили заявку и скоро свяжемся с вами.
-                </p>
+                <p className="mt-4 font-display text-lg uppercase text-zinc-900 dark:text-zinc-100">{copy.doneTitle}</p>
+                <p className="mt-2 text-sm font-medium leading-relaxed text-zinc-900 dark:text-zinc-100">{copy.doneBody}</p>
                 <Button type="button" variant="primary" className="mt-8 w-full sm:w-auto" onClick={onClose}>
                   Закрыть
                 </Button>

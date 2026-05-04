@@ -17,6 +17,7 @@ type LeadRowView = {
   mainTask: string;
   timeline: string;
   telegram: string;
+  planLabel: string;
   source: string;
 };
 
@@ -28,6 +29,7 @@ function parseLeadData(raw: string | null): LeadRowView {
     mainTask: "—",
     timeline: "—",
     telegram: "—",
+    planLabel: "—",
     source: "—",
   };
   if (!raw) return fallback;
@@ -40,6 +42,7 @@ function parseLeadData(raw: string | null): LeadRowView {
       mainTask: String(o.mainTask || "—"),
       timeline: String(o.timeline || "—"),
       telegram: String(o.telegram || "—"),
+      planLabel: String(o.planLabel || "—"),
       source: String(o.source || "—"),
     };
   } catch {
@@ -380,6 +383,7 @@ export function AdminDashboard() {
               <tr className="text-zinc-500 dark:text-white">
                 <th className="pb-2 pr-4 font-semibold">Время</th>
                 <th className="pb-2 pr-4 font-semibold">Telegram</th>
+                <th className="pb-2 pr-4 font-semibold">Тариф</th>
                 <th className="pb-2 pr-4 font-semibold">Этап</th>
                 <th className="pb-2 pr-4 font-semibold">Формат</th>
                 <th className="pb-2 pr-4 font-semibold">Модель</th>
@@ -391,7 +395,7 @@ export function AdminDashboard() {
             <tbody>
               {filteredLeads.length === 0 ? (
                 <tr className="border-t border-stroke/15 dark:border-white/10">
-                  <td colSpan={8} className="py-3 text-zinc-600 dark:text-white/80">
+                  <td colSpan={9} className="py-3 text-zinc-600 dark:text-white/80">
                     Заявок пока нет.
                   </td>
                 </tr>
@@ -404,6 +408,9 @@ export function AdminDashboard() {
                         {new Date(row.at).toLocaleString("ru-RU")}
                       </td>
                       <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.telegram}</td>
+                      <td className="whitespace-pre-wrap py-2 pr-4 text-sm font-semibold text-accent dark:text-accent">
+                        {lead.planLabel}
+                      </td>
                       <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.projectStage}</td>
                       <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.formatInterest}</td>
                       <td className="whitespace-pre-wrap py-2 pr-4 text-zinc-800 dark:text-white">{lead.businessModel}</td>

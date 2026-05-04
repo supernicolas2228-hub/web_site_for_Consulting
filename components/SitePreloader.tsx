@@ -175,15 +175,6 @@ export function SitePreloader() {
         isNarrow &&
         ((typeof nav.deviceMemory === "number" && nav.deviceMemory <= 4) ||
           (navigator.hardwareConcurrency ?? 8) <= 4);
-      const vfxSelector = isNarrow ? ".pre-fx" : ".pre-fx:not(.mobile-extra)";
-      const vfxEls = fx.querySelectorAll<HTMLElement>(vfxSelector);
-      if (vfxEls.length === 0) {
-        endAndHide();
-        return;
-      }
-
-      const vfxArr = Array.from(vfxEls).slice(0, isLowPowerPhone ? 16 : undefined);
-      gsapTargetsRef.current = [root, box, nameEl, ...vfxArr];
 
       const lock = () => {
         elBody.style.overflow = "hidden";
@@ -218,14 +209,30 @@ export function SitePreloader() {
       const bottom = nameRect.bottom - fxRect.top;
       const cx = (left + right) / 2;
       const cy = (top + bottom) / 2;
+      /** Высокий блок текста (перенос «Кирилл / Санчаев») — расширяем кольцо спавна, иначе частицы залезают на буквы. */
+      const nrW = right - left;
+      const nrH = bottom - top;
+      const wrapBoost = isNarrow && nrH > nrW * 0.5 ? 1.55 : 1;
+
+      /* При переносе фамилии на вторую строку — без mobile-extra меньше наложений на Safari */
+      const vfxSelector =
+        isNarrow && wrapBoost > 1 ? ".pre-fx:not(.mobile-extra)" : isNarrow ? ".pre-fx" : ".pre-fx:not(.mobile-extra)";
+      const vfxEls = fx.querySelectorAll<HTMLElement>(vfxSelector);
+      if (vfxEls.length === 0) {
+        endAndHide();
+        return;
+      }
+
+      const vfxArr = Array.from(vfxEls).slice(0, isLowPowerPhone ? 16 : undefined);
+      gsapTargetsRef.current = [root, box, nameEl, ...vfxArr];
 
       const sideFlight = () => {
         if (isNarrow) {
-          // На телефоне — "конфетти" по всему кругу вокруг имени.
-          const halfW = Math.max(42, (right - left) / 2);
-          const halfH = Math.max(18, (bottom - top) / 2);
+          // На телефоне — кольцо снаружи bbox имени, с запасом от переноса строки.
+          const halfW = Math.max(52, (nrW / 2) * wrapBoost + 10);
+          const halfH = Math.max(30, (nrH / 2) * wrapBoost + 8);
           const angle = Math.random() * Math.PI * 2;
-          const ringPad = 8 + Math.random() * 16;
+          const ringPad = 22 + Math.random() * 26;
           const sx = cx + Math.cos(angle) * (halfW + ringPad);
           const sy = cy + Math.sin(angle) * (halfH + ringPad);
           const nx = Math.cos(angle);
@@ -418,14 +425,14 @@ export function SitePreloader() {
 
         <p
           ref={nameRef}
-          className="relative z-20 max-w-[18ch] text-center font-display text-[clamp(1.65rem,7vw,3.35rem)] font-bold leading-[1.05] tracking-[0.03em] text-white [text-shadow:0_2px_48px_rgba(0,0,0,0.65),0_0_80px_rgba(16,185,129,0.15)]"
+          className="relative z-[40] max-w-[18ch] text-center font-display text-[clamp(1.65rem,7vw,3.35rem)] font-bold leading-[1.05] tracking-[0.03em] text-white [text-shadow:0_2px_48px_rgba(0,0,0,0.65),0_0_80px_rgba(16,185,129,0.15)] [isolation:isolate]"
         >
           {displayName}
         </p>
 
         <div
           ref={fxRef}
-          className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-[min(78vmin,560px)] w-[min(94vw,620px)] -translate-x-1/2 -translate-y-1/2"
+          className="pointer-events-none absolute left-1/2 top-1/2 z-[5] h-[min(78vmin,560px)] w-[min(94vw,620px)] -translate-x-1/2 -translate-y-1/2"
           aria-hidden
         >
           {FX_BURST.map((item, i) => {
