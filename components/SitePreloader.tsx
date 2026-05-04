@@ -96,6 +96,16 @@ function whenDomReady(fn: () => void) {
   }
 }
 
+/** iOS / Telegram: финальный layout и шрифты после первого кадра — иначе getBoundingClientRect «плывёт». */
+function whenLayoutStable(run: () => void, narrow: boolean) {
+  const exec = () => requestAnimationFrame(() => requestAnimationFrame(run));
+  if (narrow && typeof document !== "undefined" && document.fonts?.ready) {
+    void document.fonts.ready.then(exec);
+  } else {
+    exec();
+  }
+}
+
 /**
  * Имя по центру → из центра разлетаются слова (УСПЕХ, ДЕНЬГИ и др.).
  * Portal в `document.body`, `html.site-preloader-active` скрывает #site-root.
@@ -157,7 +167,7 @@ export function SitePreloader() {
       if (!killedRef.current) setActive(false);
     };
 
-    const run = () => {
+    const runCore = () => {
       if (killedRef.current) return;
       try {
       const root = rootRef.current;
@@ -229,10 +239,10 @@ export function SitePreloader() {
       const sideFlight = () => {
         if (isNarrow) {
           // На телефоне — кольцо снаружи bbox имени, с запасом от переноса строки.
-          const halfW = Math.max(52, (nrW / 2) * wrapBoost + 10);
-          const halfH = Math.max(30, (nrH / 2) * wrapBoost + 8);
+          const halfW = Math.max(56, (nrW / 2) * wrapBoost + 14);
+          const halfH = Math.max(34, (nrH / 2) * wrapBoost + 12);
           const angle = Math.random() * Math.PI * 2;
-          const ringPad = 22 + Math.random() * 26;
+          const ringPad = 28 + Math.random() * 32 + (wrapBoost > 1 ? 14 : 0);
           const sx = cx + Math.cos(angle) * (halfW + ringPad);
           const sy = cy + Math.sin(angle) * (halfH + ringPad);
           const nx = Math.cos(angle);
@@ -383,6 +393,12 @@ export function SitePreloader() {
       }
     };
 
+    const run = () => {
+      if (killedRef.current) return;
+      const isNarrow = typeof window !== "undefined" && window.innerWidth < 640;
+      whenLayoutStable(runCore, isNarrow);
+    };
+
     whenDomReady(run);
 
     return () => {
@@ -406,7 +422,7 @@ export function SitePreloader() {
     <div
       ref={rootRef}
       data-site-preloader="true"
-      className="site-preloader pointer-events-auto fixed inset-0 isolate z-[2147483000] flex max-h-dvh w-full max-w-[100vw] items-center justify-center overflow-hidden bg-black [contain:layout_style_paint] will-change-[opacity] transform-gpu before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_50%_38%,rgba(16,185,129,0.12),transparent_55%)] after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_50%_115%,rgba(0,0,0,0.55),transparent_42%)]"
+      className="site-preloader pointer-events-auto fixed inset-0 isolate z-[2147483000] flex min-h-0 min-w-0 max-h-[100dvh] w-full max-w-[100vw] items-center justify-center overflow-hidden bg-black pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)] [contain:layout_style_paint] will-change-[opacity] transform-gpu before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_50%_38%,rgba(16,185,129,0.12),transparent_55%)] after:pointer-events-none after:absolute after:inset-0 after:bg-[radial-gradient(circle_at_50%_115%,rgba(0,0,0,0.55),transparent_42%)]"
       style={{ zIndex: 2147483000, isolation: "isolate" as const }}
       role="status"
       aria-live="polite"
@@ -415,7 +431,7 @@ export function SitePreloader() {
     >
       <div
         ref={boxRef}
-        className="relative flex min-h-[min(52vh,440px)] w-full max-w-[min(92vw,560px)] flex-col items-center justify-center px-5"
+        className="relative flex min-h-[min(48dvh,420px)] w-full max-w-[min(92vw,560px)] flex-col items-center justify-center px-5 sm:min-h-[min(52vh,440px)]"
         suppressHydrationWarning
       >
         <div
@@ -423,18 +439,19 @@ export function SitePreloader() {
           aria-hidden
         />
 
-        <p
-          ref={nameRef}
-          className="relative z-[40] max-w-[18ch] text-center font-display text-[clamp(1.65rem,7vw,3.35rem)] font-bold leading-[1.05] tracking-[0.03em] text-white [text-shadow:0_2px_48px_rgba(0,0,0,0.65),0_0_80px_rgba(16,185,129,0.15)] [isolation:isolate]"
-        >
-          {displayName}
-        </p>
+        <div className="relative mx-auto w-full max-w-[18ch]">
+          <p
+            ref={nameRef}
+            className="relative z-[40] m-0 text-center font-display text-[clamp(1.65rem,7vw,3.35rem)] font-bold leading-[1.05] tracking-[0.03em] text-white [text-shadow:0_2px_48px_rgba(0,0,0,0.65),0_0_80px_rgba(16,185,129,0.15)] [isolation:isolate]"
+          >
+            {displayName}
+          </p>
 
-        <div
-          ref={fxRef}
-          className="pointer-events-none absolute left-1/2 top-1/2 z-[5] h-[min(78vmin,560px)] w-[min(94vw,620px)] -translate-x-1/2 -translate-y-1/2"
-          aria-hidden
-        >
+          <div
+            ref={fxRef}
+            className="pointer-events-none absolute left-1/2 top-1/2 z-[5] h-[min(82vmin,580px)] w-[min(96vw,640px)] max-w-none -translate-x-1/2 -translate-y-1/2 sm:h-[min(78vmin,560px)] sm:w-[min(94vw,620px)]"
+            aria-hidden
+          >
           {FX_BURST.map((item, i) => {
             if (item.kind === "money") {
               const isGlyph = item.text === "$" || item.text === "€";
@@ -495,6 +512,7 @@ export function SitePreloader() {
               </span>
             );
           })}
+          </div>
         </div>
       </div>
     </div>
