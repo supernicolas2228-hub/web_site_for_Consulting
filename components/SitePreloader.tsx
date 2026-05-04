@@ -6,7 +6,7 @@ import gsap from "gsap";
 import { hero } from "@/config/content";
 import { shouldSkipHeavyPreloader } from "@/lib/preloader-skip";
 
-const SESSION_KEY = "ks_preloader_done_v10";
+const SESSION_KEY = "ks_preloader_done_v11";
 
 type FxBurstItem =
   | { kind: "word"; text: string; emphasize?: boolean }
@@ -144,6 +144,18 @@ export function SitePreloader() {
       unlock();
       if (!killedRef.current) setActive(false);
     };
+
+    /** До старта GSAP (ожидание шрифтов) частицы иначе видны в центре — только белое имя. */
+    const hideBurstLabelsUntilGsap = () => {
+      const fx = fxRef.current;
+      if (!fx) return;
+      for (const el of fx.querySelectorAll<HTMLElement>(".pre-fx")) {
+        el.style.opacity = "0";
+      }
+    };
+    hideBurstLabelsUntilGsap();
+    queueMicrotask(hideBurstLabelsUntilGsap);
+    requestAnimationFrame(hideBurstLabelsUntilGsap);
 
     const runBurst = () => {
       if (killedRef.current) return;
@@ -410,7 +422,7 @@ export function SitePreloader() {
 
           <div
             ref={fxRef}
-            className="pointer-events-none absolute left-1/2 top-1/2 z-[5] h-[min(78vmin,560px)] w-[min(94vw,620px)] -translate-x-1/2 -translate-y-1/2"
+            className="pointer-events-none absolute left-1/2 top-1/2 z-[5] h-[min(78vmin,560px)] w-[min(94vw,620px)] -translate-x-1/2 -translate-y-1/2 [&_.pre-fx]:opacity-0"
             aria-hidden
           >
             {FX_BURST.map((item, i) => {
@@ -419,7 +431,7 @@ export function SitePreloader() {
                 return (
                   <span
                     key={`${item.text}-${i}`}
-                    className={`pre-fx absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 leading-none select-none will-change-transform max-sm:will-change-[transform,opacity] ${
+                    className={`pre-fx absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 leading-none select-none will-change-transform max-sm:will-change-[transform,opacity] ${
                       isGlyph
                         ? "font-display text-[clamp(17px,4.8vmin,30px)] font-black text-amber-200 [text-shadow:0_0_22px_rgb(251_191_36/0.55),0_0_40px_rgb(234_179_8/0.25)] max-sm:text-[clamp(16px,4.4vmin,26px)] max-sm:[text-shadow:0_0_10px_rgba(251,191,36,0.35)]"
                         : "text-[clamp(19px,5.2vmin,36px)] sm:[filter:drop-shadow(0_0_14px_rgb(251_191_36/0.45))] max-sm:[filter:none]"
@@ -433,7 +445,7 @@ export function SitePreloader() {
               return (
                 <span
                   key={`${item.text}-${i}`}
-                  className={`pre-fx font-display absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-extrabold uppercase leading-none tracking-[0.14em] sm:tracking-[0.18em] will-change-transform max-sm:will-change-[transform,opacity] ${
+                  className={`pre-fx font-display absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 font-extrabold uppercase leading-none tracking-[0.14em] sm:tracking-[0.18em] will-change-transform max-sm:will-change-[transform,opacity] ${
                     emphasize
                       ? "text-[clamp(13px,3.6vmin,22px)] text-emerald-300 [text-shadow:0_0_24px_rgb(52_211_153/0.55)] max-sm:[text-shadow:0_0_10px_rgba(52,211,153,0.4)]"
                       : "text-[clamp(11px,3vmin,17px)] text-zinc-400/95 [text-shadow:0_0_16px_rgba(255,255,255,0.12)] max-sm:[text-shadow:none]"
