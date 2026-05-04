@@ -6,9 +6,9 @@ import gsap from "gsap";
 import { hero } from "@/config/content";
 import { shouldSkipHeavyPreloader } from "@/lib/preloader-skip";
 
-const SESSION_KEY = "ks_preloader_done_v8";
+const SESSION_KEY = "ks_preloader_done_v9";
 
-/** Слова + «купюры» ($ € 💵 💶) — всё разлетается из центра одной волной. */
+/** Слова + «купюры» — только desktop (sm+), на телефоне DOM не рендерим → нет лагов. */
 type FxBurstItem =
   | { kind: "word"; text: string; emphasize?: boolean }
   | { kind: "money"; text: string };
@@ -32,28 +32,8 @@ const FX_BURST: readonly FxBurstItem[] = [
   { kind: "money", text: "💶" },
 ] as const;
 
-/** Дополнительные элементы только для телефона — чтобы вылет был насыщеннее. */
-const FX_BURST_MOBILE_EXTRA: readonly FxBurstItem[] = [
-  { kind: "money", text: "💵" },
-  { kind: "word", text: "УСПЕХ", emphasize: true },
-  { kind: "money", text: "💶" },
-  { kind: "word", text: "ДЕНЬГИ", emphasize: true },
-  { kind: "money", text: "$" },
-  { kind: "word", text: "РОСТ" },
-  { kind: "money", text: "💸" },
-  { kind: "word", text: "ДОХОД" },
-  { kind: "money", text: "€" },
-  { kind: "word", text: "ПОБЕДА" },
-  { kind: "money", text: "💰" },
-  { kind: "word", text: "РЕЗУЛЬТАТ" },
-  { kind: "money", text: "💵" },
-  { kind: "word", text: "УСПЕХ", emphasize: true },
-  { kind: "money", text: "💸" },
-  { kind: "word", text: "ДЕНЬГИ", emphasize: true },
-] as const;
-
-/** Жёсткий потолок: на медленном VPN / прокси GSAP не должен держать экран бесконечно. */
 const MAX_MS = 3200;
+const MOBILE_MAX_MS = 1600;
 
 /** Показать сцену снова: открой главную с `?replayLoader`. */
 function wantsReplayLoader(): boolean {
@@ -96,10 +76,9 @@ function whenDomReady(fn: () => void) {
   }
 }
 
-/** iOS / Telegram: финальный layout и шрифты после первого кадра — иначе getBoundingClientRect «плывёт». */
-function whenLayoutStable(run: () => void, narrow: boolean) {
+function whenLayoutStable(run: () => void) {
   const exec = () => requestAnimationFrame(() => requestAnimationFrame(run));
-  if (narrow && typeof document !== "undefined" && document.fonts?.ready) {
+  if (typeof document !== "undefined" && document.fonts?.ready) {
     void document.fonts.ready.then(exec);
   } else {
     exec();
@@ -107,8 +86,8 @@ function whenLayoutStable(run: () => void, narrow: boolean) {
 }
 
 /**
- * Имя по центру → из центра разлетаются слова (УСПЕХ, ДЕНЬГИ и др.).
- * Portal в `document.body`, `html.site-preloader-active` скрывает #site-root.
+ * Имя по центру → на desktop из центра разлетаются слова/символы (GSAP).
+ * На телефонах — только короткое появление имени и fade-out (без частиц, без лагов).
  */
 export function SitePreloader() {
   const [active, setActive] = useState(true);
@@ -124,7 +103,6 @@ export function SitePreloader() {
   const displayName = hero.portraitAlt.trim() || "Кирилл Санчаев";
 
   useLayoutEffect(() => {
-    /* Встроенный браузер / saveData / 2G / ?nofx=1 — без тяжёлого прелоадера. */
     if (typeof window !== "undefined" && shouldSkipHeavyPreloader()) {
       setActive(false);
       return;
@@ -167,227 +145,243 @@ export function SitePreloader() {
       if (!killedRef.current) setActive(false);
     };
 
-    const runCore = () => {
+    /** Телефоны: без частиц, 3 цели GSAP, короткий таймлайн. */
+    const runMobileLight = () => {
       if (killedRef.current) return;
       try {
-      const root = rootRef.current;
-      const box = boxRef.current;
-      const nameEl = nameRef.current;
-      const fx = fxRef.current;
-      if (!root || !box || !nameEl || !fx) {
-        endAndHide();
-        return;
-      }
-
-      const nav = navigator as Navigator & { deviceMemory?: number };
-      const isNarrow = window.innerWidth < 640;
-      const isLowPowerPhone =
-        isNarrow &&
-        ((typeof nav.deviceMemory === "number" && nav.deviceMemory <= 4) ||
-          (navigator.hardwareConcurrency ?? 8) <= 4);
-
-      const lock = () => {
-        elBody.style.overflow = "hidden";
-        elHtml.style.overflow = "hidden";
-      };
-      lock();
-
-      const maxMs = isNarrow ? 2600 : MAX_MS;
-      safetyRef.current = window.setTimeout(() => {
-        try {
-          gsap.killTweensOf(gsapTargetsRef.current);
-        } catch {
-          /* ignore */
+        const root = rootRef.current;
+        const box = boxRef.current;
+        const nameEl = nameRef.current;
+        if (!root || !box || !nameEl) {
+          endAndHide();
+          return;
         }
-        gsap.set(root, { autoAlpha: 0, pointerEvents: "none" });
+
+        const lock = () => {
+          elBody.style.overflow = "hidden";
+          elHtml.style.overflow = "hidden";
+        };
+        lock();
+
+        safetyRef.current = window.setTimeout(() => {
+          try {
+            gsap.killTweensOf(gsapTargetsRef.current);
+          } catch {
+            /* ignore */
+          }
+          gsap.set(root, { autoAlpha: 0, pointerEvents: "none" });
+          endAndHide();
+        }, MOBILE_MAX_MS);
+
+        if (prefersReduced()) {
+          gsap
+            .timeline()
+            .to(root, { autoAlpha: 0, duration: 0.4, ease: "power2.inOut" })
+            .add(() => endAndHide());
+          return;
+        }
+
+        gsapTargetsRef.current = [root, box, nameEl];
+        gsap.set(nameEl, { opacity: 0, y: 18, scale: 0.97, transformOrigin: "50% 50%" });
+        gsap.set(root, { autoAlpha: 1 });
+
+        const tl = gsap.timeline();
+        tl.fromTo(box, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.22, ease: "power2.out" })
+          .to(
+            nameEl,
+            { opacity: 1, y: 0, scale: 1, duration: 0.42, ease: "power2.out" },
+            "-=0.1",
+          )
+          .to({}, { duration: 0.14 })
+          .to(root, {
+            autoAlpha: 0,
+            duration: 0.36,
+            ease: "power2.inOut",
+            onComplete: () => {
+              window.clearTimeout(safetyRef.current);
+              markDone();
+              unlock();
+              if (!killedRef.current) setActive(false);
+            },
+          });
+      } catch {
         endAndHide();
-      }, maxMs);
-
-      if (prefersReduced()) {
-        gsap
-          .timeline()
-          .to(root, { autoAlpha: 0, duration: 0.45, ease: "power2.inOut" })
-          .add(() => endAndHide());
-        return;
       }
+    };
 
-      const nameRect = nameEl.getBoundingClientRect();
-      const fxRect = fx.getBoundingClientRect();
-      const left = nameRect.left - fxRect.left;
-      const right = nameRect.right - fxRect.left;
-      const top = nameRect.top - fxRect.top;
-      const bottom = nameRect.bottom - fxRect.top;
-      const cx = (left + right) / 2;
-      const cy = (top + bottom) / 2;
-      /** Высокий блок текста (перенос «Кирилл / Санчаев») — расширяем кольцо спавна, иначе частицы залезают на буквы. */
-      const nrW = right - left;
-      const nrH = bottom - top;
-      const wrapBoost = isNarrow && nrH > nrW * 0.5 ? 1.55 : 1;
+    /** Desktop: полный вылет частиц. */
+    const runDesktopBurst = () => {
+      if (killedRef.current) return;
+      try {
+        const root = rootRef.current;
+        const box = boxRef.current;
+        const nameEl = nameRef.current;
+        const fx = fxRef.current;
+        if (!root || !box || !nameEl || !fx) {
+          endAndHide();
+          return;
+        }
 
-      /* При переносе фамилии на вторую строку — без mobile-extra меньше наложений на Safari */
-      const vfxSelector =
-        isNarrow && wrapBoost > 1 ? ".pre-fx:not(.mobile-extra)" : isNarrow ? ".pre-fx" : ".pre-fx:not(.mobile-extra)";
-      const vfxEls = fx.querySelectorAll<HTMLElement>(vfxSelector);
-      if (vfxEls.length === 0) {
-        endAndHide();
-        return;
-      }
+        const lock = () => {
+          elBody.style.overflow = "hidden";
+          elHtml.style.overflow = "hidden";
+        };
+        lock();
 
-      const vfxArr = Array.from(vfxEls).slice(0, isLowPowerPhone ? 16 : undefined);
-      gsapTargetsRef.current = [root, box, nameEl, ...vfxArr];
+        safetyRef.current = window.setTimeout(() => {
+          try {
+            gsap.killTweensOf(gsapTargetsRef.current);
+          } catch {
+            /* ignore */
+          }
+          gsap.set(root, { autoAlpha: 0, pointerEvents: "none" });
+          endAndHide();
+        }, MAX_MS);
 
-      const sideFlight = () => {
-        if (isNarrow) {
-          // На телефоне — кольцо снаружи bbox имени, с запасом от переноса строки.
-          const halfW = Math.max(56, (nrW / 2) * wrapBoost + 14);
-          const halfH = Math.max(34, (nrH / 2) * wrapBoost + 12);
-          const angle = Math.random() * Math.PI * 2;
-          const ringPad = 28 + Math.random() * 32 + (wrapBoost > 1 ? 14 : 0);
-          const sx = cx + Math.cos(angle) * (halfW + ringPad);
-          const sy = cy + Math.sin(angle) * (halfH + ringPad);
-          const nx = Math.cos(angle);
-          const ny = Math.sin(angle);
-          const dist = 210 + Math.random() * 190;
-          const flyXAbs = sx + nx * dist + (Math.random() - 0.5) * 44;
-          const flyYAbs = sy + ny * dist + (Math.random() - 0.5) * 44;
+        if (prefersReduced()) {
+          gsap
+            .timeline()
+            .to(root, { autoAlpha: 0, duration: 0.45, ease: "power2.inOut" })
+            .add(() => endAndHide());
+          return;
+        }
+
+        const nameRect = nameEl.getBoundingClientRect();
+        const fxRect = fx.getBoundingClientRect();
+        const left = nameRect.left - fxRect.left;
+        const right = nameRect.right - fxRect.left;
+        const top = nameRect.top - fxRect.top;
+        const bottom = nameRect.bottom - fxRect.top;
+        const cx = (left + right) / 2;
+        const cy = (top + bottom) / 2;
+
+        const vfxEls = fx.querySelectorAll<HTMLElement>(".pre-fx");
+        if (vfxEls.length === 0) {
+          endAndHide();
+          return;
+        }
+
+        const vfxArr = Array.from(vfxEls);
+        gsapTargetsRef.current = [root, box, nameEl, ...vfxArr];
+
+        const sideFlight = () => {
+          const sidePick = Math.floor(Math.random() * 4);
+          const edgeJitter = 16;
+          let sx = cx;
+          let sy = cy;
+          if (sidePick === 0) {
+            sx = left - Math.random() * edgeJitter;
+            sy = top + Math.random() * Math.max(8, bottom - top);
+          } else if (sidePick === 1) {
+            sx = right + Math.random() * edgeJitter;
+            sy = top + Math.random() * Math.max(8, bottom - top);
+          } else if (sidePick === 2) {
+            sx = left + Math.random() * Math.max(8, right - left);
+            sy = top - Math.random() * edgeJitter;
+          } else {
+            sx = left + Math.random() * Math.max(8, right - left);
+            sy = bottom + Math.random() * edgeJitter;
+          }
+
+          const vx = sx - cx;
+          const vy = sy - cy;
+          const len = Math.hypot(vx, vy) || 1;
+          const nx = vx / len;
+          const ny = vy / len;
+          const dist = 270 + Math.random() * 220;
+          const flyXAbs = sx + nx * dist + (Math.random() - 0.5) * 60;
+          const flyYAbs = sy + ny * dist + (Math.random() - 0.5) * 60;
           return {
             spawnX: sx - fxRect.width / 2,
             spawnY: sy - fxRect.height / 2,
             flyX: flyXAbs - fxRect.width / 2,
             flyY: flyYAbs - fxRect.height / 2,
-            rot: (Math.random() - 0.5) * 220,
-            sc: 0.48 + Math.random() * 0.62,
+            rot: (Math.random() - 0.5) * 180,
+            sc: 0.45 + Math.random() * 0.55,
           };
-        }
-        const sidePick = Math.floor(Math.random() * 4); // 0:left 1:right 2:top 3:bottom
-        const edgeJitter = isNarrow ? 10 : 16;
-        let sx = cx;
-        let sy = cy;
-        if (sidePick === 0) {
-          sx = left - Math.random() * edgeJitter;
-          sy = top + Math.random() * Math.max(8, bottom - top);
-        } else if (sidePick === 1) {
-          sx = right + Math.random() * edgeJitter;
-          sy = top + Math.random() * Math.max(8, bottom - top);
-        } else if (sidePick === 2) {
-          sx = left + Math.random() * Math.max(8, right - left);
-          sy = top - Math.random() * edgeJitter;
-        } else {
-          sx = left + Math.random() * Math.max(8, right - left);
-          sy = bottom + Math.random() * edgeJitter;
-        }
-
-        const vx = sx - cx;
-        const vy = sy - cy;
-        const len = Math.hypot(vx, vy) || 1;
-        const nx = vx / len;
-        const ny = vy / len;
-        const dist = isNarrow ? 170 + Math.random() * 130 : 270 + Math.random() * 220;
-        const flyXAbs = sx + nx * dist + (Math.random() - 0.5) * (isNarrow ? 35 : 60);
-        const flyYAbs = sy + ny * dist + (Math.random() - 0.5) * (isNarrow ? 35 : 60);
-        return {
-          spawnX: sx - fxRect.width / 2,
-          spawnY: sy - fxRect.height / 2,
-          flyX: flyXAbs - fxRect.width / 2,
-          flyY: flyYAbs - fxRect.height / 2,
-          rot: (Math.random() - 0.5) * 180,
-          sc: 0.45 + Math.random() * 0.55,
         };
-      };
 
-      gsap.set(vfxArr, {
-        x: 0,
-        y: 0,
-        scale: 0.55,
-        opacity: 0,
-        rotation: 0,
-        transformOrigin: "50% 50%",
-      });
-      gsap.set(nameEl, { opacity: 0, y: 36, scale: 0.94, transformOrigin: "50% 50%" });
-      gsap.set(root, { autoAlpha: 1 });
+        gsap.set(vfxArr, {
+          x: 0,
+          y: 0,
+          scale: 0.55,
+          opacity: 0,
+          rotation: 0,
+          transformOrigin: "50% 50%",
+        });
+        gsap.set(nameEl, { opacity: 0, y: 36, scale: 0.94, transformOrigin: "50% 50%" });
+        gsap.set(root, { autoAlpha: 1 });
 
-      const tl = gsap.timeline();
+        const tl = gsap.timeline();
 
-      tl.fromTo(
-        box,
-        { autoAlpha: 0 },
-        { autoAlpha: 1, duration: 0.35, ease: "power2.out" },
-      )
-        .to(
+        tl.fromTo(box, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.35, ease: "power2.out" })
+          .to(
+            nameEl,
+            {
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              duration: 0.82,
+              ease: "power3.out",
+            },
+            "-=0.22",
+          )
+          .addLabel("burst", "-=0.28");
+
+        vfxArr.forEach((el, i) => {
+          const b = sideFlight();
+          gsap.set(el, {
+            x: b.spawnX,
+            y: b.spawnY,
+            rotation: b.rot * 0.18,
+            scale: 0.58,
+          });
+          tl.to(
+            el,
+            {
+              opacity: 1,
+              scale: 0.88 + (i % 3) * 0.05,
+              duration: 0.12,
+              ease: "power2.out",
+            },
+            `burst+=${i * 0.008}`,
+          ).to(
+            el,
+            {
+              x: b.flyX,
+              y: b.flyY,
+              rotation: b.rot,
+              scale: b.sc,
+              opacity: 0,
+              duration: 0.72 + Math.random() * 0.12,
+              ease: "power3.out",
+            },
+            `burst+=${0.02 + i * 0.012}`,
+          );
+        });
+
+        tl.to(
           nameEl,
           {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-            duration: 0.82,
-            ease: "power3.out",
+            opacity: 0.55,
+            scale: 0.985,
+            duration: 0.35,
+            ease: "power2.inOut",
           },
-          "-=0.22",
-        )
-        .addLabel("burst", "-=0.28");
+          "burst+=0.08",
+        ).to(nameEl, { opacity: 1, scale: 1, duration: 0.55, ease: "power2.out" }, "burst+=0.38");
 
-      vfxArr.forEach((el, i) => {
-        const b = sideFlight();
-        gsap.set(el, {
-          x: b.spawnX,
-          y: b.spawnY,
-          rotation: b.rot * 0.18,
-          scale: 0.58,
-        });
-        tl.to(
-          el,
-          {
-            opacity: 1,
-            scale: 0.88 + (i % 3) * 0.05,
-            duration: isNarrow ? (isLowPowerPhone ? 0.13 : 0.16) : 0.12,
-            ease: "power2.out",
-          },
-          `burst+=${isNarrow ? (isLowPowerPhone ? Math.random() * 0.035 : Math.random() * 0.05) : i * 0.008}`,
-        ).to(
-          el,
-          {
-            x: b.flyX,
-            y: b.flyY,
-            rotation: b.rot,
-            scale: b.sc,
-            opacity: 0,
-            duration: isNarrow
-              ? isLowPowerPhone
-                ? 1.0 + Math.random() * 0.2
-                : 1.45 + Math.random() * 0.32
-              : 0.72 + Math.random() * 0.12,
-            ease: "power3.out",
-          },
-          `burst+=${isNarrow ? (isLowPowerPhone ? 0.04 + Math.random() * 0.05 : 0.08 + Math.random() * 0.08) : 0.02 + i * 0.012}`,
-        );
-      });
-
-      tl.to(
-        nameEl,
-        {
-          opacity: 0.55,
-          scale: 0.985,
-          duration: 0.35,
+        tl.to({}, { duration: 0.35 }).to(root, {
+          autoAlpha: 0,
+          duration: 0.55,
           ease: "power2.inOut",
-        },
-        "burst+=0.08",
-      ).to(
-        nameEl,
-        { opacity: 1, scale: 1, duration: 0.55, ease: "power2.out" },
-        "burst+=0.38",
-      );
-
-      tl.to({}, { duration: 0.35 }).to(root, {
-        autoAlpha: 0,
-        duration: 0.55,
-        ease: "power2.inOut",
-        onComplete: () => {
-          window.clearTimeout(safetyRef.current);
-          markDone();
-          unlock();
-          if (!killedRef.current) setActive(false);
-        },
-      });
+          onComplete: () => {
+            window.clearTimeout(safetyRef.current);
+            markDone();
+            unlock();
+            if (!killedRef.current) setActive(false);
+          },
+        });
       } catch {
         endAndHide();
       }
@@ -395,8 +389,12 @@ export function SitePreloader() {
 
     const run = () => {
       if (killedRef.current) return;
-      const isNarrow = typeof window !== "undefined" && window.innerWidth < 640;
-      whenLayoutStable(runCore, isNarrow);
+      const isNarrow = typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches;
+      if (isNarrow) {
+        requestAnimationFrame(() => requestAnimationFrame(runMobileLight));
+      } else {
+        whenLayoutStable(runDesktopBurst);
+      }
     };
 
     whenDomReady(run);
@@ -431,7 +429,7 @@ export function SitePreloader() {
     >
       <div
         ref={boxRef}
-        className="relative flex min-h-[min(48dvh,420px)] w-full max-w-[min(92vw,560px)] flex-col items-center justify-center px-5 sm:min-h-[min(52vh,440px)]"
+        className="relative flex min-h-[min(40dvh,360px)] w-full max-w-[min(92vw,560px)] flex-col items-center justify-center px-5 sm:min-h-[min(52vh,440px)]"
         suppressHydrationWarning
       >
         <div
@@ -449,69 +447,39 @@ export function SitePreloader() {
 
           <div
             ref={fxRef}
-            className="pointer-events-none absolute left-1/2 top-1/2 z-[5] h-[min(82vmin,580px)] w-[min(96vw,640px)] max-w-none -translate-x-1/2 -translate-y-1/2 sm:h-[min(78vmin,560px)] sm:w-[min(94vw,620px)]"
+            className="pointer-events-none absolute left-1/2 top-1/2 z-[5] hidden h-[min(78vmin,560px)] w-[min(94vw,620px)] -translate-x-1/2 -translate-y-1/2 sm:block"
             aria-hidden
           >
-          {FX_BURST.map((item, i) => {
-            if (item.kind === "money") {
-              const isGlyph = item.text === "$" || item.text === "€";
+            {FX_BURST.map((item, i) => {
+              if (item.kind === "money") {
+                const isGlyph = item.text === "$" || item.text === "€";
+                return (
+                  <span
+                    key={`${item.text}-${i}`}
+                    className={`pre-fx absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 leading-none select-none ${
+                      isGlyph
+                        ? "font-display text-[clamp(17px,4.8vmin,30px)] font-black text-amber-200 [text-shadow:0_0_22px_rgb(251_191_36/0.55),0_0_40px_rgb(234_179_8/0.25)]"
+                        : "text-[clamp(19px,5.2vmin,36px)] [filter:drop-shadow(0_0_14px_rgb(251_191_36/0.45))]"
+                    }`}
+                  >
+                    {item.text}
+                  </span>
+                );
+              }
+              const emphasize = Boolean(item.emphasize);
               return (
                 <span
                   key={`${item.text}-${i}`}
-                  className={`pre-fx absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 leading-none select-none ${
-                    isGlyph
-                      ? "font-display text-[clamp(17px,4.8vmin,30px)] font-black text-amber-200 [text-shadow:0_0_22px_rgb(251_191_36/0.55),0_0_40px_rgb(234_179_8/0.25)]"
-                      : "text-[clamp(19px,5.2vmin,36px)] [filter:drop-shadow(0_0_14px_rgb(251_191_36/0.45))]"
+                  className={`pre-fx font-display absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-extrabold uppercase leading-none tracking-[0.18em] ${
+                    emphasize
+                      ? "text-[clamp(13px,3.6vmin,22px)] text-emerald-300 [text-shadow:0_0_24px_rgb(52_211_153/0.55)]"
+                      : "text-[clamp(11px,3vmin,17px)] text-zinc-400/95 [text-shadow:0_0_16px_rgba(255,255,255,0.12)]"
                   }`}
                 >
                   {item.text}
                 </span>
               );
-            }
-            const emphasize = Boolean(item.emphasize);
-            return (
-              <span
-                key={`${item.text}-${i}`}
-                className={`pre-fx font-display absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-extrabold uppercase leading-none tracking-[0.14em] sm:tracking-[0.18em] ${
-                  emphasize
-                    ? "text-[clamp(13px,3.6vmin,22px)] text-emerald-300 [text-shadow:0_0_24px_rgb(52_211_153/0.55)]"
-                    : "text-[clamp(11px,3vmin,17px)] text-zinc-400/95 [text-shadow:0_0_16px_rgba(255,255,255,0.12)]"
-                }`}
-              >
-                {item.text}
-              </span>
-            );
-          })}
-          {FX_BURST_MOBILE_EXTRA.map((item, i) => {
-            if (item.kind === "money") {
-              const isGlyph = item.text === "$" || item.text === "€";
-              return (
-                <span
-                  key={`m-${item.text}-${i}`}
-                  className={`pre-fx mobile-extra absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 leading-none select-none sm:hidden ${
-                    isGlyph
-                      ? "font-display text-[clamp(17px,4.8vmin,30px)] font-black text-amber-200 [text-shadow:0_0_22px_rgb(251_191_36/0.55),0_0_40px_rgb(234_179_8/0.25)]"
-                      : "text-[clamp(19px,5.2vmin,36px)] [filter:drop-shadow(0_0_14px_rgb(251_191_36/0.45))]"
-                  }`}
-                >
-                  {item.text}
-                </span>
-              );
-            }
-            const emphasize = Boolean(item.emphasize);
-            return (
-              <span
-                key={`m-${item.text}-${i}`}
-                className={`pre-fx mobile-extra font-display absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-extrabold uppercase leading-none tracking-[0.14em] sm:hidden ${
-                  emphasize
-                    ? "text-[clamp(13px,3.6vmin,22px)] text-emerald-300 [text-shadow:0_0_24px_rgb(52_211_153/0.55)]"
-                    : "text-[clamp(11px,3vmin,17px)] text-zinc-400/95 [text-shadow:0_0_16px_rgba(255,255,255,0.12)]"
-                }`}
-              >
-                {item.text}
-              </span>
-            );
-          })}
+            })}
           </div>
         </div>
       </div>
